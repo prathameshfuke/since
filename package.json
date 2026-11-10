@@ -1,0 +1,13 @@
+{
+  "name": "since",
+  "version": "1.0.0",
+  "private": true,
+  "description": "A web-search chat agent that remembers what you asked and checks what changed since.",
+  "type": "module",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "dev": "node --watch --env-file-if-exists=.env server/index.js",
+    "start": "node --env-file-if-exists=.env server/index.js",
+    "test": "node --test"
+  }
+}

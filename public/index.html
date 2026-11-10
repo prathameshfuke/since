@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Since</title>
+  <meta name="description" content="Ask a question. Since reads the live web, remembers what you asked, and shows what changed.">
+  <meta name="color-scheme" content="light dark">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%2313212C'/%3E%3Cpath d='M8 12h10' stroke='%23E8EDF0' stroke-width='3' stroke-linecap='round'/%3E%3Cpath d='M8 20h16' stroke='%23FF7AA3' stroke-width='3' stroke-linecap='round'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Condensed:wght@400;500;600&family=Literata:ital,opsz,wght@0,7..72,400..700;1,7..72,400..700&display=swap">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <a class="skip" href="#composer-input">Skip to the message box</a>
+  <div class="app" id="app">
+    <aside class="rail" id="rail" aria-label="Conversations">
+      <div class="brand"><span class="mark" aria-hidden="true"></span><span class="word">Since</span></div>
+      <button class="new" id="new-chat" type="button">New chat</button>
+      <nav class="threads" id="threads" aria-label="Past conversations"></nav>
+      <div class="rail-foot">
+        <button type="button" class="linkish" id="load-sample">Load sample history</button>
+        <button type="button" class="linkish" id="clear-all">Clear memory</button>
+        <p class="privacy">History stays in this browser. Your question and the history relevant to it are sent to the model and search providers.</p>
+      </div>
+    </aside>
+    <div class="scrim" id="scrim"></div>
+    <main class="stage">
+      <header class="topbar">
+        <button type="button" class="menu" id="menu" aria-expanded="false" aria-controls="rail">Chats</button>
+        <h1 class="title" id="title">New chat</h1>
+        <span class="count" id="count"></span>
+      </header>
+      <div class="scroll" id="scroll">
+        <div class="transcript" id="transcript" aria-live="polite"></div>
+      </div>
+      <form class="composer" id="composer">
+        <div class="inner">
+          <label class="sr" for="composer-input">Message</label>
+          <textarea id="composer-input" rows="1" placeholder="Ask anything. Since checks the web." autocomplete="off" enterkeyhint="send"></textarea>
+          <button type="submit" id="send">Send</button>
+        </div>
+      </form>
+    </main>
+  </div>
+  <script type="module" src="/app.js"></script>
+</body>
+</html>
