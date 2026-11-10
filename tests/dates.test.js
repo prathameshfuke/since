@@ -59,3 +59,10 @@ test('each phrase is counted once', () => {
 test('dayKey falls back to UTC on a bad timezone', () => {
   assert.equal(dayKey(NOW, 'Not/AZone'), '2026-11-10');
 });
+
+test('"last 7 days" is a window ending today, inclusive', () => {
+  const r = resolveDates('weather in Pune for the last 7 days', new Date('2026-11-11T08:00:00Z'), 'UTC');
+  assert.deepEqual([r.refs[0].start, r.refs[0].end], ['2026-11-05', '2026-11-11']);
+  const w = resolveDates('past two weeks', new Date('2026-11-11T08:00:00Z'), 'UTC');
+  assert.deepEqual([w.refs[0].start, w.refs[0].end], ['2026-10-29', '2026-11-11']);
+});

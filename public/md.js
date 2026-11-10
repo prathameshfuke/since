@@ -19,8 +19,8 @@ export function cited(text, sources) {
 
 /** Removes ```changes and ```chart blocks (the server sends the verified versions separately). `pending` = one is still streaming. */
 export function splitChanges(text) {
-  let rest = text.replace(/```(?:changes|chart)[ \t]*\n?[\s\S]*?```/g, '');
-  const open = rest.search(/```(?:changes|chart)/);
+  let rest = text.replace(/```changes[ \t]*\n?[\s\S]*?```/g, '').replace(/(?:```|【)\s*chart\b(?:[^`]*```)?[\s\S]*?```/g, '');
+  const open = rest.search(/```changes|(?:```|【)\s*chart\b/);
   if (open === -1) return { text: rest.trimEnd(), pending: false };
   rest = rest.slice(0, open);
   return { text: rest.trimEnd(), pending: true };

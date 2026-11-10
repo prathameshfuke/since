@@ -93,3 +93,42 @@ test('chart: two real points are not a trend, and no block means no chart', () =
   assert.equal(c, null);
   assert.equal(verifyChart('Just prose.', quotes), null);
 });
+
+test('chart figures must match whole numbers, and a period title needs a series', () => {
+  const t = new Map([[1, 'humidity 2056 and 0.56 noted, temp 18.6 C']]);
+  const c = verifyChart(cblock({ title: 'Pune weather (Last 7 Days)', stats: [{ label: 'Humidity', value: '56 %', src: 1 }, { label: 'Temp', value: '18.6 C', src: 1 }], series: [] }), t);
+  assert.deepEqual(c.stats.map((x) => x.label), ['Temp']);
+  assert.equal(c.title, 'Pune weather');
+});
+
+test('bars compare two real values; invented ones are dropped', () => {
+  const t = new Map([[1, 'Neon Launch $19 per month; Supabase Pro $25 per month']]);
+  const c = verifyChart(cblock({ kind: 'bars', unit: '$', series: [{ x: 'Neon', y: 19, src: 1 }, { x: 'Supabase', y: 25, src: 1 }, { x: 'Render', y: 7, src: 1 }] }), t);
+  assert.equal(c.kind, 'bars');
+  assert.deepEqual(c.series.map((x) => x.x), ['Neon', 'Supabase']);
+});
+
+test('scatter needs real numbers on both axes; pie parts must be positive and sourced', () => {
+  const t = new Map([[1, 'Neon 19 4.6, Supabase 25 4.7, Render 7 4.1, Fake 99 1.1']]);
+  const sc = verifyChart(cblock({ kind: 'scatter', series: [{ x: 19, y: 4.6, label: 'Neon', src: 1 }, { x: 25, y: 4.7, src: 1 }, { x: 7, y: 4.1, src: 1 }, { x: 55, y: 4.9, src: 1 }] }), t);
+  assert.equal(sc.kind, 'scatter');
+  assert.equal(sc.series.length, 3);
+  const pie = verifyChart(cblock({ kind: 'pie', series: [{ x: 'A', y: 19, src: 1 }, { x: 'B', y: -5, src: 1 }, { x: 'C', y: 7, src: 1 }] }), t);
+  assert.deepEqual(pie.series.map((x) => x.x), ['A', 'C']);
+});
+
+test('a garbled chart fence still parses, and comparable stats become the bars', () => {
+  const t = new Map([[1, 'China 1412914088 India 1476625576 Indonesia 287886782']]);
+  const text = 'Answer [1]【chart\n```\n' + JSON.stringify({ kind: 'bars', unit: '', stats: [{ label: 'China', value: '1,412,914,088', src: 1 }, { label: 'India', value: '1,476,625,576', src: 1 }, { label: 'Indonesia', value: '287,886,782', src: 1 }], series: [] }) + '\n```';
+  const c = verifyChart(text, t);
+  assert.equal(c.kind, 'bars');
+  assert.deepEqual(c.series.map((x) => x.x), ['China', 'India', 'Indonesia']);
+  assert.equal(c.stats.length, 0);
+});
+
+test('the reader never sees a chart block, even a garbled one', () => {
+  const body = '{"kind":"bars","series":[]}';
+  assert.equal(splitChanges(`Answer.\n${FENCE}chart\n${body}\n${FENCE}`).text, 'Answer.');
+  assert.equal(splitChanges(`Answer.【chart\n${FENCE}\n${body}\n${FENCE}`).text, 'Answer.');
+  assert.deepEqual(splitChanges(`Answer.\n${FENCE}chart\n{"kind"`), { text: 'Answer.', pending: true });
+});

@@ -297,3 +297,41 @@ kbd { font: 500 .75rem var(--mono); color: var(--ink-2); border: 1px solid var(-
 @keyframes draw { to { stroke-dashoffset: 0; } }
 @keyframes fade { to { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .chart.play .line { animation: none; stroke-dashoffset: 0; } .chart.play .dot { animation: none; opacity: 1; } }
+
+.chart .bars { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--ink); }
+.chart .bars li { display: grid; grid-template-columns: minmax(6rem, 11rem) 1fr 6rem; align-items: center; gap: .9rem; padding: .55rem 0; border-bottom: 1px solid var(--rule); font: 450 .88rem/1.3 var(--ui); }
+.chart .bars .name { font-weight: 550; }
+.chart .bars .lane { height: .55rem; background: color-mix(in srgb, var(--ink) 7%, transparent); }
+.chart .bars .bar { display: block; height: 100%; width: var(--w); background: var(--ink); transform-origin: left; }
+.chart .bars .val { font: 500 .82rem var(--mono); font-variant-numeric: tabular-nums; text-align: right; }
+.chart.play .bars .bar { animation: grow .7s calc(var(--i) * 70ms) cubic-bezier(.3, .6, .2, 1) both; }
+@keyframes grow { from { transform: scaleX(0); } }
+@media (prefers-reduced-motion: reduce) { .chart.play .bars .bar { animation: none; } }
+@media (max-width: 36rem) { .chart .bars li { grid-template-columns: 1fr auto; } .chart .bars .lane { grid-column: 1 / -1; order: 3; } }
+
+.chart .area { fill: color-mix(in srgb, var(--ink) 9%, transparent); stroke: none; }
+.chart .col { fill: var(--ink); transform-box: fill-box; transform-origin: bottom; }
+.chart.play .col { animation: rise .7s calc(var(--i) * 60ms) cubic-bezier(.3, .6, .2, 1) both; }
+@keyframes rise { from { transform: scaleY(0); } }
+.chart .pt { fill: color-mix(in srgb, var(--ink) 80%, transparent); stroke: var(--fog); stroke-width: 1.5; }
+.chart.play .pt { animation: pop .4s calc(var(--i) * 40ms) both; transform-box: fill-box; transform-origin: center; }
+@keyframes pop { from { transform: scale(0); opacity: 0; } }
+.chart .pie { display: grid; grid-template-columns: minmax(8rem, 12rem) 1fr; gap: 1.4rem; align-items: center; }
+.chart .pie svg { width: 100%; }
+.chart .slice { stroke: var(--fog); stroke-width: .8; }
+.chart.play .slice { animation: fade .5s calc(var(--i) * 80ms) both; opacity: 1; }
+.chart .legend { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--ink); }
+.chart .legend li { display: grid; grid-template-columns: .7rem 1fr auto; gap: .7rem; align-items: center; padding: .5rem 0; border-bottom: 1px solid var(--rule); font: 450 .88rem/1.3 var(--ui); }
+.chart .legend .val { font: 500 .8rem var(--mono); }
+.chart .sw { width: .7rem; height: .7rem; display: block; }
+/* Ink ramp, not colour: shades of the one ink keep the chart flat and on-brand. */
+.chart .s0 { fill: color-mix(in srgb, var(--ink) 100%, transparent); background: var(--ink); }
+.chart .s1 { fill: color-mix(in srgb, var(--ink) 78%, var(--fog)); background: color-mix(in srgb, var(--ink) 78%, var(--fog)); }
+.chart .s2 { fill: color-mix(in srgb, var(--ink) 58%, var(--fog)); background: color-mix(in srgb, var(--ink) 58%, var(--fog)); }
+.chart .s3 { fill: color-mix(in srgb, var(--ink) 42%, var(--fog)); background: color-mix(in srgb, var(--ink) 42%, var(--fog)); }
+.chart .s4 { fill: color-mix(in srgb, var(--ink) 30%, var(--fog)); background: color-mix(in srgb, var(--ink) 30%, var(--fog)); }
+.chart .s5 { fill: color-mix(in srgb, var(--ink) 22%, var(--fog)); background: color-mix(in srgb, var(--ink) 22%, var(--fog)); }
+.chart .s6 { fill: color-mix(in srgb, var(--ink) 15%, var(--fog)); background: color-mix(in srgb, var(--ink) 15%, var(--fog)); }
+.chart .s7 { fill: color-mix(in srgb, var(--ink) 9%, var(--fog)); background: color-mix(in srgb, var(--ink) 9%, var(--fog)); }
+@media (max-width: 36rem) { .chart .pie { grid-template-columns: 1fr; } .chart .pie svg { max-width: 12rem; } }
+@media (prefers-reduced-motion: reduce) { .chart.play .col, .chart.play .pt, .chart.play .slice { animation: none; } }

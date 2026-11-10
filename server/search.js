@@ -196,7 +196,7 @@ export async function webSearchMany(requests, { today, signal, depth = 'balanced
   const prepared = requests.map((r) => {
     const query = String(r.query || '').trim().slice(0, 300);
     const needle = String(r.must || '').toLowerCase().trim().slice(0, 40);
-    return { query, after: r.after, before: r.before, needle, key: `${query.toLowerCase()}|${r.after || ''}|${r.before || ''}|${needle}|${level}` };
+    return { query, after: r.after, before: r.before, needle, wide: Boolean(r.wide), key: `${query.toLowerCase()}|${r.after || ''}|${r.before || ''}|${needle}|${level}${r.wide ? '|wide' : ''}` };
   });
 
   const gathered = await Promise.all(prepared.map(async (p) => {
@@ -204,7 +204,7 @@ export async function webSearchMany(requests, { today, signal, depth = 'balanced
     const hit = cache.get(p.key);
     if (hit && Date.now() - hit.at < TTL_MS) return { ...p, done: hit.value };
     if (!inflight.has(p.key)) {
-      inflight.set(p.key, gather(p, { today, signal, snippet: cfg.snippet }).finally(() => inflight.delete(p.key)));
+      inflight.set(p.key, gather(p, { today, signal, snippet: p.wide ? Math.max(cfg.snippet, 1000) : cfg.snippet }).finally(() => inflight.delete(p.key)));
     }
     return { ...p, g: await inflight.get(p.key) };
   }));

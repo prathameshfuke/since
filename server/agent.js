@@ -52,7 +52,7 @@ function historyBlock(hits, tz, charsEach) {
 const showRef = (r) =>
   `"${r.phrase}" = ${r.start === r.end ? `${r.start} (${prettyDay(r.start)})` : `${r.start} to ${r.end}`}${r.alt ? `, or ${r.alt} if they mean the week before` : ''}`;
 
-function systemPrompt({ now, tz, refs, hits, note, pastIntent, sinceDay, results, style }) {
+function systemPrompt({ now, tz, refs, hits, note, pastIntent, sinceDay, results, style, chart }) {
   const stamp = new Intl.DateTimeFormat('en-GB', { dateStyle: 'full', timeStyle: 'short', timeZone: tz }).format(now);
   const lines = [
     'You are Since, a research assistant. You answer with live web evidence and you remember what this user asked before.',
@@ -66,14 +66,19 @@ function systemPrompt({ now, tz, refs, hits, note, pastIntent, sinceDay, results
     '- Prefer a vendor\'s own pages over aggregators and blogs for prices and features. Say when you rely on a weaker source.',
     '- Give dates: "as of 8 Nov" using the result date. If a result has no date, say its date is unknown. Never present an old source as current.',
     '- No evidence of a change is not "no change". If nothing newer turned up, say "no change found in sources published after <date>".',
-    '- Numbers worth seeing (a stock or crypto price, a trend, a benchmark, figures compared across things): after the written answer add ONE fenced block, exactly in this shape:',
+    '- A place, company or person the question depends on (weather, "near me", "my plan") that is not in the message or the chat: ask which one in a single short sentence and stop. Never guess a location.',
+    '- Match the period asked. For "last 7 days" use only values dated inside that window, and say which dates they cover. A forecast, a monthly average, a record or another year is NOT what happened: label it as such or leave it out. Never use a source dated after today as evidence of the past.',
+    '- Every number you write must appear in a search result you cite. If the results do not give the values for the period asked (for example no day-by-day table), say so in one sentence and report only what they do give, with its dates. Do not describe the trend, the pattern or the "feel" of a period that no source covers.',
+    chart
+      ? `- This answer needs a chart (kind "${chart}" unless the figures you actually found suit another kind better). After the written answer add ONE fenced block. If the sources lack the figures, send only the stats you can source, and say so in the text.`
+      : '- Numbers worth seeing (a price, a trend, a benchmark, figures compared across things): after the written answer add ONE fenced block. Skip it for questions that are not numeric.',
     `${FENCE}chart`,
-    '{"title":"NVIDIA (NVDA)","unit":"$","stats":[{"label":"Price","value":"$188.50","src":1},{"label":"Day","value":"+1.2%","src":1}],"series":[{"x":"3 Nov","y":186.2,"src":2},{"x":"4 Nov","y":187.9,"src":2},{"x":"5 Nov","y":188.5,"src":2}]}',
+    '{"kind":"line","title":"NVDA","unit":"$","stats":[{"label":"Price","value":"$188.50","src":1}],"series":[{"x":"3 Nov","y":186.2,"src":2},{"x":"4 Nov","y":187.9,"src":2},{"x":"5 Nov","y":188.5,"src":2}]}',
     FENCE,
-    '  "stats": up to 4 key figures (price, change, day or 52-week range, market cap, volume). "series": only when the sources give 3 or more dated values (for example daily closes), oldest first, at most 30. Copy every figure exactly as the source writes it, with the n of that result in "src". No source, no figure: never estimate, round or fill gaps. If the sources only give a current price, send stats and no series. Skip the block for questions that are not numeric.',
+    '  kind: "line" or "area" (a measure over dated points, oldest first, 3 to 30 points), "columns" or "bars" (compare 2 to 12 named things: "x" is the name, "y" its number), "pie" (2 to 8 parts of a whole, "x" is the name, "y" a positive number), "scatter" (3 to 40 items with two numbers: "x" and "y" are both numbers, optional "label" names the item). "stats": up to 4 headline figures about ONE subject (price, change, range). Figures across several things (countries, products, vendors) go in "series", never in "stats". Copy every figure exactly as the source writes it, with the n of that result in "src". No source, no figure: never estimate, round, convert or fill gaps. If the sources give only a current value, send stats and no series. "title" names the subject only (e.g. "<city> weather", "NVDA"), with no period unless the series really covers it. For weather or price history, prefer sources that tabulate dated observations over forecast pages.',
     '- For stocks and markets: report what sources say as of their date, name the exchange and currency, and add a short clause that this is information, not investment advice.',
     style === 'detailed'
-      ? '- Length: DETAILED. Write 250 to 350 words, never fewer than 200 unless the question is trivial. Start with a two-sentence answer, then short sections with plain headings: the evidence (every figure with its [n] and date), how the sources compare or disagree, the caveats and what could not be confirmed, and what to do next. Explain the reasoning behind the conclusion. Do not pad, but do not stop at a summary. Plain words.'
+      ? '- Length: DETAILED. Write 200 to 320 words. Start with a two-sentence answer, then only the sections that earn their place, each with a plain heading: the evidence (every figure with its [n] and date), where sources disagree, and what could not be confirmed. Skip a section when it has nothing to say. No "reasoning" or "what to do next" essay: end after the last useful fact. Plain words.'
       : '- Length: CONCISE. At most 80 words: the answer, the key figures with [n], one caveat if it matters. No headings. A list only for parallel items. Plain words.',
     '- Ask one question only when you cannot proceed without it.',
   ];
@@ -115,7 +120,9 @@ async function plan({ message, now, tz, refs, hits, sinceDay, recent, signal, de
   const stamp = new Intl.DateTimeFormat('en-CA', { dateStyle: 'full', timeZone: tz }).format(now);
   const system = [
     'You plan web searches for a research assistant. Reply with ONLY a JSON object, no prose:',
-    '{"search": boolean, "queries": [{"q": string, "after": string|null, "must": string}]}',
+    '{"search": boolean, "data": boolean, "chart": string, "queries": [{"q": string, "after": string|null, "must": string}]}',
+    '"chart" is the best chart for the answer: "line" (one measure over time), "area" (a running total or volume over time), "columns" (a few values per period or category), "bars" (compare items by one number: price per product), "scatter" (two numbers per item: price against rating), "pie" (shares of a whole, in percent), or "none" (no figures worth drawing, or the answer is one number). When the user asks for a chart, graph, plot or visual, never answer "none".',
+    '"data" is true when the answer needs figures laid out (prices, a history over days, scores, benchmarks, a comparison of numbers): the search then returns longer snippets with the tables.',
     '',
     'Rules:',
     '- search=false for chit-chat, writing help, arithmetic, stable facts, or anything the conversation already answers.',
@@ -123,6 +130,8 @@ async function plan({ message, now, tz, refs, hits, sinceDay, recent, signal, de
     '- One query per thing to check. Five products means five queries. Never put two products in one query. Max ' + maxQueries + '.',
     '- Each q is standalone and names the product or topic. No pronouns. Do NOT put dates or words like "since" or "change" in q: the date goes in "after". For a price use e.g. "HubSpot Sales Hub Starter price per seat". If the user asks about pricing OR big releases, use one query per product such as "HubSpot pricing and major new features".',
     '- For a stock, coin or market, plan two queries: one for the live quote (e.g. "NVIDIA NVDA stock price today") and one for the recent trend (e.g. "NVIDIA NVDA stock price history this week closing prices"), plus one for news if the user asks why it moved.',
+    '- A question that needs a place and gives none ("weather", "near me") needs no search: set search=false and the assistant will ask.',
+    '- For "last N days" or other history of a measurement (weather, prices, scores): query for dated observations, e.g. "<city> weather history daily high low" or "NVDA historical prices", never a forecast page, and set "after" to the start of the window.',
     '- "must" is ONE lowercase word that every relevant page mentions: the product or topic name, e.g. "hubspot".',
     '- "after" is a YYYY-MM-DD day, or null. Set it for news, releases and "what changed since" questions. When re-checking an earlier answer, use the date of that earlier conversation. For plain "what is it now" questions use null.',
     `Today is ${stamp}.`,
@@ -143,10 +152,12 @@ async function plan({ message, now, tz, refs, hits, sinceDay, recent, signal, de
         query: String(x?.q ?? x?.query ?? '').trim(),
         after: DAY.test(x?.after || '') ? x.after : undefined,
         must: typeof x?.must === 'string' ? x.must : undefined,
+        wide: json.data === true,
       }))
       .filter((x) => x.query)
       .slice(0, maxQueries);
-    return { search: Boolean(json.search) && queries.length > 0, queries };
+    const chart = ['line', 'area', 'columns', 'bars', 'scatter', 'pie'].includes(json.chart) ? json.chart : null;
+    return { search: Boolean(json.search) && queries.length > 0, queries, chart };
   } catch (e) {
     if (signal?.aborted) throw e;
     console.warn(`[plan] skipped: ${e.message.slice(0, 160)}`);
@@ -196,28 +207,60 @@ export function verifyLedger(text, texts, earlier = '') {
     return row;
   });
 }
+/** True if the number appears in the text as a whole number, so "56" does not match "2056" or "0.56". */
+const hasFigure = (text, f) => new RegExp(`(?<![\\d.])${f.replace(/\./g, '\\.')}(?![\\d]|\\.\\d)`).test(text);
+
+/** Finds the chart block even if the model garbles its fence ("【chart", a doubled fence): marker, then the first balanced {...}. */
+function chartJson(text) {
+  const mark = text.search(/(?:```|【)\s*chart\b/);
+  if (mark === -1) return null;
+  const start = text.indexOf('{', mark);
+  if (start === -1) return null;
+  let depth = 0, inStr = false;
+  for (let i = start; i < text.length; i++) {
+    const c = text[i];
+    if (inStr) { if (c === '\\') i++; else if (c === '"') inStr = false; continue; }
+    if (c === '"') inStr = true;
+    else if (c === '{') depth++;
+    else if (c === '}' && --depth === 0) { try { return JSON.parse(text.slice(start, i + 1)); } catch { return null; } }
+  }
+  return null;
+}
+
 /**
  * Parses the model's ```chart block and keeps only figures a cited source really contains.
  * A stat or a point whose number is not in its source text is dropped. A series needs 3+ surviving points.
  */
 export function verifyChart(text, texts) {
-  const m = text.match(/```chart\s*([\s\S]*?)```/);
-  if (!m) return null;
-  let j;
-  try { j = JSON.parse(m[1]); } catch { return null; }
+  const j = chartJson(text);
+  if (!j) return null;
   const flat = (n) => (texts.get(n) || '').replace(/,/g, '');
   const figs = (v) => (String(v).match(/\d[\d,.]*\d|\d/g) || []).map((f) => f.replace(/,/g, ''));
-  const stats = (Array.isArray(j?.stats) ? j.stats : []).slice(0, 4)
+  const wide = ['bars', 'columns', 'pie', 'scatter'].includes(j?.kind);
+  const stats = (Array.isArray(j?.stats) ? j.stats : []).slice(0, wide ? 12 : 4)
     .filter((x) => x && typeof x.label === 'string' && typeof x.value === 'string' && Number.isInteger(x.src)
-      && figs(x.value).some((f) => flat(x.src).includes(f)))
+      && figs(x.value).some((f) => hasFigure(flat(x.src), f)))
     .map((x) => ({ label: trim(x.label, 24), value: trim(x.value, 24), src: x.src }));
-  const series = (Array.isArray(j?.series) ? j.series : []).slice(0, 30)
-    .filter((x) => x && typeof x.x === 'string' && Number.isFinite(x.y) && Number.isInteger(x.src)
-      && [String(x.y), x.y.toFixed(2)].some((f) => flat(x.src).includes(f)))
-    .map((x) => ({ x: trim(x.x, 12), y: x.y, src: x.src }));
-  const keep = series.length >= 3 ? series : [];
+  const KINDS = { line: 3, area: 3, scatter: 3, columns: 2, bars: 2, pie: 2 };
+  const kind = KINDS[j?.kind] ? j.kind : 'line';
+  const named = kind === 'bars' || kind === 'columns' || kind === 'pie';
+  const series = (Array.isArray(j?.series) ? j.series : []).slice(0, kind === 'scatter' ? 40 : 30)
+    .filter((x) => x && Number.isFinite(x.y) && Number.isInteger(x.src)
+      && (kind === 'scatter' ? Number.isFinite(x.x) && [String(x.x), x.x.toFixed(2)].some((f) => hasFigure(flat(x.src), f)) : typeof x.x === 'string')
+      && (kind !== 'pie' || x.y > 0)
+      && [String(x.y), x.y.toFixed(2)].some((f) => hasFigure(flat(x.src), f)))
+    .map((x) => ({ x: kind === 'scatter' ? x.x : trim(x.x, named ? 28 : 12), y: x.y, src: x.src, ...(kind === 'scatter' && typeof x.label === 'string' ? { label: trim(x.label, 20) } : {}) }));
+  let keep = series.length >= KINDS[kind] ? series : [];
+  // The model sometimes lists the compared items as stats and leaves the series empty. The stats are already
+  // verified, so for a comparison chart they become the bars.
+  if (!keep.length && named && stats.length >= 2) {
+    const asSeries = stats.map((x) => ({ x: x.label, y: Number(x.value.replace(/[^\d.\-]/g, '')), src: x.src }));
+    if (asSeries.every((x) => Number.isFinite(x.y) && (kind !== 'pie' || x.y > 0))) { keep = asSeries; stats.length = 0; }
+  }
+  stats.length = Math.min(stats.length, 4);
   if (!stats.length && !keep.length) return null;
-  return { title: trim(String(j.title ?? ''), 60), unit: trim(String(j.unit ?? ''), 4), stats, series: keep };
+  const title = String(j.title ?? '');
+  return { kind, title: trim(keep.length ? title : title.replace(/\s*[(\-–:]?\s*(?:last|past)\s+\w+\s+(?:day|week|month)s?\)?/i, ''), 60), unit: trim(String(j.unit ?? ''), 4), stats, series: keep };
 }
 
 /** Runs a batch of searches together (one batched ranking call underneath) and numbers the results. */
@@ -297,9 +340,12 @@ export async function* runAgent({ message, tz = 'UTC', pairId, recent = [], memo
     yield { event: 'sources', data: { items: reg.sources } };
   }
 
+  const asked = /\b(chart|graph|plot|visuali[sz]e|visuali[sz]ation|diagram)\b/i.test(message);
+  const wantChart = planned?.chart ?? (asked ? 'line' : null);
+
   // ANSWER. The planner failing (null) means the model gets the tool and searches for itself, two rounds.
   const maxRounds = planned ? 1 : 2;
-  const messages = [{ role: 'system', content: systemPrompt({ now, tz, refs, hits, note, pastIntent, sinceDay, results, style }) }];
+  const messages = [{ role: 'system', content: systemPrompt({ now, tz, refs, hits, note, pastIntent, sinceDay, results, style, chart: wantChart }) }];
   for (const p of recent.slice(-6)) messages.push({ role: 'user', content: trim(p.q, 1500) }, { role: 'assistant', content: trim(p.a, 1500) });
   messages.push({ role: 'user', content: message });
 

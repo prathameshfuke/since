@@ -95,6 +95,11 @@ export function resolveDates(text, now = new Date(), tz = 'UTC') {
     return [addDays(c, -3), addDays(c, 3)];
   });
 
+  take(/\b(?:last|past|previous)\s+(\d+|an?|one|two|three|four|five|six|seven)\s+(day|week)s?\b/g, (m) => {
+    const n = (NUM_WORDS[m[1]] ?? Number(m[1])) * (m[2] === 'week' ? 7 : 1);
+    return n >= 1 && n <= 366 ? [addDays(today, -(n - 1)), today] : null;
+  });
+
   const thisMonday = addDays(today, -((weekdayOf(today) + 6) % 7));
   take(/\blast week\b/g, () => [addDays(thisMonday, -7), addDays(thisMonday, -1)]);
   take(/\bthis week\b/g, () => [thisMonday, today]);

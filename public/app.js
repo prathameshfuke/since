@@ -1,6 +1,7 @@
 import * as store from './store.js';
 import * as settings from './settings.js';
 import { render, cited, splitChanges } from './md.js';
+import { chartEl } from './charts.js';
 import { sampleThreads, samplePrompts } from './sample.js';
 import { ensureSession, forget } from './gate.js';
 
@@ -101,62 +102,6 @@ function ledgerEl(rows, sources, play) {
   });
   table.append(body);
   return table;
-}
-
-const SVGNS = 'http://www.w3.org/2000/svg';
-const svg = (tag, attrs = {}, text) => {
-  const n = document.createElementNS(SVGNS, tag);
-  for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, v);
-  if (text != null) n.textContent = text;
-  return n;
-};
-
-/** Verified figures as small stat tiles plus (when the sources gave enough dated points) a flat line chart. */
-function chartEl(c, sources, play) {
-  const root = el('figure', `chart${play ? ' play' : ''}`);
-  const bySrc = new Map(sources.map((s) => [s.n, s]));
-  const cite = (n) => {
-    const s = bySrc.get(n);
-    if (!s) return null;
-    const a = el('a', 'cite', String(n));
-    a.href = s.url; a.target = '_blank'; a.rel = 'noopener noreferrer'; a.title = `${s.title || s.domain} (${s.domain})`;
-    return a;
-  };
-  if (c.title) root.append(el('figcaption', '', c.title));
-  if (c.stats?.length) {
-    const row = el('dl', 'stats');
-    for (const x of c.stats) {
-      const d = el('div');
-      const dd = el('dd', '', x.value);
-      const a = cite(x.src);
-      if (a) dd.append(' ', a);
-      d.append(el('dt', '', x.label), dd);
-      row.append(d);
-    }
-    root.append(row);
-  }
-  const pts = c.series ?? [];
-  if (pts.length >= 3) {
-    const W = 640, H = 200, L = 8, R = 56, T = 12, B = 26;
-    const ys = pts.map((p) => p.y);
-    const lo = Math.min(...ys), hi = Math.max(...ys), pad = (hi - lo || Math.abs(hi) * 0.02 || 1) * 0.15;
-    const y0 = lo - pad, y1 = hi + pad;
-    const px = (i) => L + (i * (W - L - R)) / (pts.length - 1);
-    const py = (v) => T + ((y1 - v) * (H - T - B)) / (y1 - y0);
-    const g = svg('svg', { viewBox: `0 0 ${W} ${H}`, role: 'img', 'aria-label': `${c.title || 'Chart'}: ${pts[0].x} to ${pts.at(-1).x}, ${ys[0]} to ${ys.at(-1)}` });
-    for (const v of [lo, (lo + hi) / 2, hi]) {
-      g.append(svg('line', { x1: L, x2: W - R, y1: py(v), y2: py(v), class: 'grid' }));
-      g.append(svg('text', { x: W - R + 6, y: py(v) + 4, class: 'tick' }, `${c.unit || ''}${Number(v.toFixed(2))}`));
-    }
-    const d = pts.map((p, i) => `${i ? 'L' : 'M'}${px(i).toFixed(1)} ${py(p.y).toFixed(1)}`).join(' ');
-    g.append(svg('path', { d, class: 'line', pathLength: 1 }));
-    g.append(svg('circle', { cx: px(pts.length - 1), cy: py(ys.at(-1)), r: 3.5, class: 'dot' }));
-    g.append(svg('text', { x: L, y: H - 6, class: 'tick' }, pts[0].x));
-    g.append(svg('text', { x: W - R, y: H - 6, class: 'tick', 'text-anchor': 'end' }, pts.at(-1).x));
-    pts.forEach((p, i) => { const t = svg('circle', { cx: px(i), cy: py(p.y), r: 8, class: 'hit' }); t.append(svg('title', {}, `${p.x}: ${c.unit || ''}${p.y}`)); g.append(t); });
-    root.append(g);
-  }
-  return root;
 }
 
 function copyButton(getText) {
