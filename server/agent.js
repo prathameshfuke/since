@@ -8,12 +8,11 @@
 // Memory is NOT a tool: the model keeps exactly one tool, and relevant history arrives in its prompt.
 
 import { chat, ask } from './llm.js';
-import { webSearch } from './search.js';
+import { webSearchMany, DEPTHS, depthOf } from './search.js';
 import { embed } from './embed.js';
 import { recall } from './memory.js';
 import { resolveDates, dayKey, prettyDay, refMatches } from './dates.js';
 
-const MAX_PLANNED = 6; // queries per message
 const MAX_SEARCHES = 8; // planned + model-requested; protects the free search quota
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
 const FENCE = '`'.repeat(3);
@@ -53,7 +52,7 @@ function historyBlock(hits, tz, charsEach) {
 const showRef = (r) =>
   `"${r.phrase}" = ${r.start === r.end ? `${r.start} (${prettyDay(r.start)})` : `${r.start} to ${r.end}`}${r.alt ? `, or ${r.alt} if they mean the week before` : ''}`;
 
-function systemPrompt({ now, tz, refs, hits, note, pastIntent, sinceDay, results }) {
+function systemPrompt({ now, tz, refs, hits, note, pastIntent, sinceDay, results, style }) {
   const stamp = new Intl.DateTimeFormat('en-GB', { dateStyle: 'full', timeStyle: 'short', timeZone: tz }).format(now);
   const lines = [
     'You are Since, a research assistant. You answer with live web evidence and you remember what this user asked before.',
@@ -67,7 +66,9 @@ function systemPrompt({ now, tz, refs, hits, note, pastIntent, sinceDay, results
     '- Prefer a vendor\'s own pages over aggregators and blogs for prices and features. Say when you rely on a weaker source.',
     '- Give dates: "as of 8 Nov" using the result date. If a result has no date, say its date is unknown. Never present an old source as current.',
     '- No evidence of a change is not "no change". If nothing newer turned up, say "no change found in sources published after <date>".',
-    '- Be concise. Short paragraphs. A list only for parallel items. Plain words. Ask one question only when you cannot proceed without it.',
+    style === 'detailed'
+      ? '- Give a fuller answer, up to about 300 words: short sections, the reasoning behind a conclusion, and the caveats worth knowing. Plain words. Ask one question only when you cannot proceed without it.'
+      : '- Be concise. Short paragraphs. A list only for parallel items. Plain words. Ask one question only when you cannot proceed without it.',
   ];
 
   if (refs.length) lines.push('', 'Dates in the user message, resolved: ' + refs.map(showRef).join('; ') + '.');
@@ -102,7 +103,8 @@ function systemPrompt({ now, tz, refs, hits, note, pastIntent, sinceDay, results
  * Asks a small model for the searches this message needs. Returns null on any failure, and the
  * answering model then searches for itself through the tool. Never blocks the answer for long.
  */
-async function plan({ message, now, tz, refs, hits, sinceDay, recent, signal }) {
+async function plan({ message, now, tz, refs, hits, sinceDay, recent, signal, depth }) {
+  const maxQueries = DEPTHS[depth].queries;
   const stamp = new Intl.DateTimeFormat('en-CA', { dateStyle: 'full', timeZone: tz }).format(now);
   const system = [
     'You plan web searches for a research assistant. Reply with ONLY a JSON object, no prose:',
@@ -111,7 +113,7 @@ async function plan({ message, now, tz, refs, hits, sinceDay, recent, signal }) 
     'Rules:',
     '- search=false for chit-chat, writing help, arithmetic, stable facts, or anything the conversation already answers.',
     '- search=true for anything that can change (prices, plans, releases, versions, news, availability) or that needs sources.',
-    '- One query per thing to check. Five products means five queries. Never put two products in one query. Max ' + MAX_PLANNED + '.',
+    '- One query per thing to check. Five products means five queries. Never put two products in one query. Max ' + maxQueries + '.',
     '- Each q is standalone and names the product or topic. No pronouns. Do NOT put dates or words like "since" or "change" in q: the date goes in "after". For a price use e.g. "HubSpot Sales Hub Starter price per seat". If the user asks about pricing OR big releases, use one query per product such as "HubSpot pricing and major new features".',
     '- "must" is ONE lowercase word that every relevant page mentions: the product or topic name, e.g. "hubspot".',
     '- "after" is a YYYY-MM-DD day, or null. Set it for news, releases and "what changed since" questions. When re-checking an earlier answer, use the date of that earlier conversation. For plain "what is it now" questions use null.',
@@ -135,7 +137,7 @@ async function plan({ message, now, tz, refs, hits, sinceDay, recent, signal }) 
         must: typeof x?.must === 'string' ? x.must : undefined,
       }))
       .filter((x) => x.query)
-      .slice(0, MAX_PLANNED);
+      .slice(0, maxQueries);
     return { search: Boolean(json.search) && queries.length > 0, queries };
   } catch (e) {
     if (signal?.aborted) throw e;
@@ -186,23 +188,28 @@ export function verifyLedger(text, texts, earlier = '') {
     return row;
   });
 }
-async function search(args, reg, ctx) {
-  if (reg.searches >= MAX_SEARCHES) return { error: 'Search budget for this message is used up. Answer with what you have.' };
-  reg.searches++;
-  const r = await webSearch(args, ctx);
-  if (!r.results.length) return { error: `Search failed: ${r.error || 'no results'}` };
-  return {
-    results: r.results.map((x) => {
-      let n = reg.byUrl.get(x.url);
-      if (!n) {
-        n = reg.sources.length + 1;
-        reg.byUrl.set(x.url, n);
-        reg.sources.push({ n, title: x.title, url: x.url, domain: x.domain, date: x.date });
-      }
-      reg.texts.set(n, `${reg.texts.get(n) || ''} ${x.title} ${x.text}`);
-      return { n, title: x.title, url: x.url, domain: x.domain, date: x.date || 'unknown', new: Boolean(x.isNew), text: x.text };
-    }),
-  };
+/** Runs a batch of searches together (one batched ranking call underneath) and numbers the results. */
+async function searchAll(list, reg, ctx) {
+  const run = list.slice(0, Math.max(0, MAX_SEARCHES - reg.searches));
+  reg.searches += run.length;
+  const found = run.length ? await webSearchMany(run, ctx) : [];
+  return list.map((_, i) => {
+    if (i >= run.length) return { error: 'Search budget for this message is used up. Answer with what you have.' };
+    const r = found[i];
+    if (!r.results.length) return { error: `Search failed: ${r.error || 'no results'}` };
+    return {
+      results: r.results.map((x) => {
+        let n = reg.byUrl.get(x.url);
+        if (!n) {
+          n = reg.sources.length + 1;
+          reg.byUrl.set(x.url, n);
+          reg.sources.push({ n, title: x.title, url: x.url, domain: x.domain, date: x.date });
+        }
+        reg.texts.set(n, `${reg.texts.get(n) || ''} ${x.title} ${x.text}`);
+        return { n, title: x.title, url: x.url, domain: x.domain, date: x.date || 'unknown', new: Boolean(x.isNew), text: x.text };
+      }),
+    };
+  });
 }
 
 function resultsBlock(queries, outputs) {
@@ -217,13 +224,16 @@ function resultsBlock(queries, outputs) {
 }
 
 /** Yields {event, data} for the SSE layer. */
-export async function* runAgent({ message, tz = 'UTC', pairId, recent = [], memory = [], now = new Date(), signal }) {
+export async function* runAgent({ message, tz = 'UTC', pairId, recent = [], memory = [], now = new Date(), signal, depth = 'balanced', style = 'concise' }) {
+  depth = depthOf(depth);
   const started = Date.now();
   const { today, refs } = resolveDates(message, now, tz);
 
   // Start embedding right away; it is awaited only if recall needs it, and for the returned vectors.
   const missing = memory.filter((p) => !p.vec).slice(-30);
-  const vecJob = embed([message, ...missing.map((p) => p.q)], { signal });
+  // Old turns are embedded as question + the start of the answer, so recall can match what was SAID, not just what was asked.
+  const docText = (p) => `${p.q}. ${String(p.a).replace(/```changes[\s\S]*?```/g, '').slice(0, 240)}`;
+  const vecJob = embed([message, ...missing.map(docText)], { signal });
 
   const skip = new Set(recent.map((p) => p.id));
   const dateHit = refs.length > 0 && memory.some((p) => refs.some((r) => refMatches(r, dayKey(p.ts, tz))));
@@ -238,18 +248,18 @@ export async function* runAgent({ message, tz = 'UTC', pairId, recent = [], memo
   const sinceDay = hits.length ? dayKey(hits[0].ts, tz) : today;
 
   const reg = registry();
-  const ctx = { today, signal };
+  const ctx = { today, signal, depth };
   const t = { plan: 0, search: 0 };
 
   // PLAN, then SEARCH in parallel.
   let results = '';
   let t0 = Date.now();
-  const planned = await plan({ message, now, tz, refs, hits, sinceDay, recent, signal });
+  const planned = await plan({ message, now, tz, refs, hits, sinceDay, recent, signal, depth });
   t.plan = Date.now() - t0;
   if (planned?.search) {
     yield { event: 'status', data: { text: `Searching: ${planned.queries.map((q) => q.query).join(' · ')}`, queries: planned.queries.map((q) => q.query) } };
     t0 = Date.now();
-    const outputs = await Promise.all(planned.queries.map((q) => search(q, reg, ctx)));
+    const outputs = await searchAll(planned.queries, reg, ctx);
     t.search = Date.now() - t0;
     results = resultsBlock(planned.queries, outputs);
     yield { event: 'sources', data: { items: reg.sources } };
@@ -257,7 +267,7 @@ export async function* runAgent({ message, tz = 'UTC', pairId, recent = [], memo
 
   // ANSWER. The planner failing (null) means the model gets the tool and searches for itself, two rounds.
   const maxRounds = planned ? 1 : 2;
-  const messages = [{ role: 'system', content: systemPrompt({ now, tz, refs, hits, note, pastIntent, sinceDay, results }) }];
+  const messages = [{ role: 'system', content: systemPrompt({ now, tz, refs, hits, note, pastIntent, sinceDay, results, style }) }];
   for (const p of recent.slice(-6)) messages.push({ role: 'user', content: trim(p.q, 1500) }, { role: 'assistant', content: trim(p.a, 1500) });
   messages.push({ role: 'user', content: message });
 
@@ -293,13 +303,13 @@ export async function* runAgent({ message, tz = 'UTC', pairId, recent = [], memo
     const queries = parsed.filter((x) => x.c.function.name === 'web_search' && x.args.query).map((x) => x.args.query);
     yield { event: 'status', data: { text: queries.length ? `Searching: ${queries.join(' · ')}` : 'Working', queries } };
     t0 = Date.now();
-    const outputs = await Promise.all(
-      parsed.map(({ c, args }) => {
-        if (c.function.name !== 'web_search') return { error: `Unknown tool "${c.function.name}". The only tool is web_search.` };
-        if (!args.query) return { error: 'web_search needs a query.' };
-        return search(args, reg, ctx);
-      }),
-    );
+    const valid = parsed.filter(({ c, args }) => c.function.name === 'web_search' && args.query);
+    const searched = await searchAll(valid.map(({ args }) => args), reg, ctx);
+    const outputs = parsed.map(({ c, args }) => {
+      if (c.function.name !== 'web_search') return { error: `Unknown tool "${c.function.name}". The only tool is web_search.` };
+      if (!args.query) return { error: 'web_search needs a query.' };
+      return searched[valid.findIndex((v) => v.args === args)];
+    });
     t.search += Date.now() - t0;
     calls.forEach((c, i) => messages.push({ role: 'tool', tool_call_id: c.id, content: JSON.stringify(outputs[i]) }));
     yield { event: 'sources', data: { items: reg.sources } };
@@ -308,16 +318,19 @@ export async function* runAgent({ message, tz = 'UTC', pairId, recent = [], memo
   const ledger = verifyLedger(answer, reg.texts, hits.map((p) => p.a).join(' '));
   if (ledger) yield { event: 'ledger', data: { rows: ledger } }; // the browser renders this, not the raw block
 
-  // Vectors for the browser to store: this question, and any older turns that lacked one.
-  const vecs = await vecJob;
-  const vectors = {};
-  if (vecs) {
-    if (vecs[0] && pairId) vectors[pairId] = vecs[0];
-    missing.forEach((p, i) => { if (vecs[i + 1]) vectors[p.id] = vecs[i + 1]; });
-  }
-  yield { event: 'vectors', data: { vectors } };
   yield {
     event: 'done',
     data: { provider, ms: Date.now() - started, firstTokenMs: firstToken, planMs: t.plan, searchMs: t.search, searches: reg.searches, sources: reg.sources.length, recalled: hits.length },
   };
+
+  // Vectors for the browser to store, sent AFTER `done` so they never delay the answer: this turn (question +
+  // start of the answer, now that it exists) and any older turns that lacked one.
+  const early = await vecJob;
+  const vectors = {};
+  if (early) missing.forEach((p, i) => { if (early[i + 1]) vectors[p.id] = early[i + 1]; });
+  if (pairId) {
+    const own = await embed([docText({ q: message, a: answer })], { signal });
+    if (own?.[0]) vectors[pairId] = own[0];
+  }
+  yield { event: 'vectors', data: { vectors } };
 }

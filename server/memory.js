@@ -3,7 +3,7 @@
 // Embeddings only LOCATE old turns. What those turns said is passed to the model verbatim,
 // dated, so the model compares dated text instead of trusting similarity to say what is current.
 
-import { cosine, lexical } from './embed.js';
+import { cosine, lexical, bm25 } from './embed.js';
 import { dayKey, refMatches } from './dates.js';
 
 const SEMANTIC_MIN = 0.62; // gemini-embedding-001 at 384 dims: related text lands around 0.65-0.85
@@ -20,13 +20,30 @@ export function recall({ query, qvec = null, pairs, refs, tz, skip = new Set(), 
   const inRange = refs.length ? pool.filter((p) => refs.some((r) => refMatches(r, onDay(p)))) : [];
   const dated = inRange.length > 0;
 
-  const score = (p) => {
-    const lex = lexical(query, `${p.q} ${p.a}`);
-    const sem = qvec && p.vec ? cosine(qvec, p.vec) : null;
-    return { p, sem, lex, score: sem === null ? lex : Math.max(sem * 0.7 + lex * 0.3, lex) };
+  // Two rankers, one fused order. Meaning finds "that database vendor thing" when no word matches;
+  // BM25 finds the exact product name when the vectors are vague. Reciprocal rank fusion combines
+  // them without having to calibrate two different score scales. Recency breaks ties.
+  const candidates = dated ? inRange : pool;
+  const docs = candidates.map((p) => `${p.q} ${p.a}`);
+  const bm = bm25(query, docs);
+  const items = candidates.map((p, i) => ({
+    p, lex: lexical(query, docs[i]), bm: bm[i], sem: qvec && p.vec ? cosine(qvec, p.vec) : null,
+  }));
+  const rankBy = (key) => {
+    items.filter((x) => x[key] !== null && x[key] > 0).sort((a, b) => b[key] - a[key]).forEach((x, i) => { x[`rank_${key}`] = i; });
   };
+  rankBy('sem');
+  rankBy('bm');
+  const newest = Math.max(...candidates.map((p) => Date.parse(p.ts)), 0);
+  const fuse = (x) =>
+    (x.rank_sem === undefined ? 0 : 1 / (60 + x.rank_sem)) +
+    (x.rank_bm === undefined ? 0 : 1 / (60 + x.rank_bm)) +
+    1e-4 * (1 - (newest - Date.parse(x.p.ts)) / (30 * 86400_000 || 1)); // newer wins a tie, over a 30-day span
+  for (const x of items) x.score = fuse(x);
 
-  let ranked = (dated ? inRange : pool).map(score);
+  // A date match is trusted. Without one, a turn must clear a relevance bar before it is recalled at all,
+  // otherwise an unrelated question would drag in whatever is closest.
+  let ranked = items;
   if (!dated) ranked = ranked.filter((s) => (s.sem !== null && s.sem >= SEMANTIC_MIN) || s.lex >= KEYWORD_MIN);
   ranked.sort((a, b) => b.score - a.score);
 

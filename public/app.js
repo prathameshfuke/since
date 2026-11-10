@@ -1,4 +1,5 @@
 import * as store from './store.js';
+import * as settings from './settings.js';
 import { render, cited, splitChanges } from './md.js';
 import { sampleThreads, samplePrompts } from './sample.js';
 
@@ -9,14 +10,16 @@ const el = (tag, cls, text) => {
   if (text != null) e.textContent = text;
   return e;
 };
-const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
 
 const ui = {
   app: $('#app'), transcript: $('#transcript'), scroll: $('#scroll'), threads: $('#threads'),
-  input: $('#composer-input'), send: $('#send'), title: $('#title'), count: $('#count'),
+  input: $('#composer-input'), send: $('#send'), title: $('#title'), count: $('#count'), dialog: $('#settings'),
 };
 let current = null; // thread id; null = a new chat that has not been saved yet
 let busy = null; // AbortController of the running request
+
+const COPY_ICON = '<svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true"><rect x="7" y="7" width="9" height="9" rx="2"/><path d="M13 7V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2"/></svg>';
+const CHECK_ICON = '<svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m4.5 10.5 3.5 3.5 7.5-8"/></svg>';
 
 /* ---------- dates ---------- */
 const sameDay = (a, b) => a.toDateString() === b.toDateString();
@@ -53,13 +56,11 @@ function updateHeader() {
   const t = current && store.get(current);
   ui.title.textContent = t?.title || 'New chat';
   const n = store.countPairs();
-  ui.count.textContent = n ? `${n} saved question${n === 1 ? '' : 's'} on this device` : 'Nothing saved yet';
+  ui.count.textContent = n ? `${n} saved on this device` : 'nothing saved yet';
 }
 
 /* ---------- turns ---------- */
-function divider(iso) {
-  return el('div', 'day-rule', dayLabel(iso));
-}
+const divider = (iso) => el('div', 'day-rule', dayLabel(iso));
 
 function buildTurn(q) {
   const root = el('section', 'turn');
@@ -101,13 +102,31 @@ function ledgerEl(rows, sources, play) {
   return table;
 }
 
+function copyButton(getText) {
+  const b = el('button', 'copy');
+  b.type = 'button';
+  b.setAttribute('aria-label', 'Copy answer');
+  b.title = 'Copy answer';
+  b.innerHTML = COPY_ICON;
+  b.onclick = async () => {
+    try { await navigator.clipboard.writeText(getText()); } catch { return; }
+    b.innerHTML = CHECK_ICON;
+    setTimeout(() => { b.innerHTML = COPY_ICON; }, 1200);
+  };
+  return b;
+}
+
 /** Paints one turn from its state. Cheap enough to run on every animation frame while streaming. */
 function paint(t, s) {
   const { text, pending } = splitChanges(s.text);
   const usedSources = cited(s.text, s.sources);
-  const live = s.status && !s.text ? `<p class="live"><span class="dot"></span><span></span></p>` : '';
+  const live = s.status && !s.text ? '<p class="live"><img class="glyph" src="/mark.svg" alt=""><span class="shimmer"></span></p>' : '';
   t.a.innerHTML = live + render(text, s.sources) + (pending ? '<p class="comparing">Comparing with your earlier answer…</p>' : '');
-  if (live) t.a.querySelector('.live span:last-child').textContent = s.status;
+  if (live) {
+    const span = t.a.querySelector('.shimmer');
+    span.textContent = s.status;
+    if (s.queries?.length) span.title = s.queries.join('\n');
+  }
   if (s.ledger?.length) t.a.append(ledgerEl(s.ledger, s.sources, s.play));
 
   t.notes.replaceChildren(...usedSources.map((n) => {
@@ -123,9 +142,11 @@ function paint(t, s) {
   t.notes.hidden = usedSources.length === 0;
 
   const m = s.meta;
-  t.meta.textContent = m
-    ? [`${(m.ms / 1000).toFixed(1)} s`, m.searches ? `${m.searches} search${m.searches === 1 ? '' : 'es'}, ${m.sources} sources read` : 'no search needed', m.recalled ? `used ${m.recalled} earlier conversation${m.recalled === 1 ? '' : 's'}` : null, m.provider ? `${m.provider.model.split('/').pop()} via ${m.provider.id}` : null].filter(Boolean).join(' · ')
-    : '';
+  t.meta.replaceChildren();
+  if (m) {
+    const parts = [`${(m.ms / 1000).toFixed(1)}s`, m.searches ? `${m.searches} search${m.searches === 1 ? '' : 'es'} · ${m.sources} sources` : 'no search needed', m.recalled ? `${m.recalled} earlier chat${m.recalled === 1 ? '' : 's'} used` : null, m.provider ? `${m.provider.model.split('/').pop()}` : null].filter(Boolean);
+    t.meta.append(el('span', '', parts.join(' · ')), copyButton(() => text));
+  }
 }
 
 function showError(t, message, retry) {
@@ -152,6 +173,7 @@ function renderTranscript() {
     if (label !== last) { ui.transcript.append(divider(p.ts)); last = label; }
     const turn = buildTurn(p.q);
     paint(turn, { text: p.a, sources: p.sources ?? [], ledger: p.ledger, meta: p.meta, status: '' });
+    turn.root.style.animation = 'none'; // history appears at once; only new turns animate
     ui.transcript.append(turn.root);
   }
   ui.scroll.scrollTop = ui.scroll.scrollHeight;
@@ -159,9 +181,8 @@ function renderTranscript() {
 
 function hero() {
   const box = el('div', 'hero');
-  const flourish = el('span', 'flourish');
-  flourish.setAttribute('aria-hidden', 'true');
-  box.append(flourish, el('h2', '', 'What changed since you last looked?'), el('p', '', 'Since reads the live web, remembers your questions on this device, and checks them again when you ask.'));
+  const mark = el('img', 'hero-mark');
+  mark.src = '/mark.svg'; mark.alt = ''; mark.width = 54; mark.height = 54;
   const list = el('ul', 'prompts');
   for (const q of samplePrompts()) {
     const li = el('li');
@@ -176,7 +197,8 @@ function hero() {
   load.type = 'button';
   load.onclick = loadSample;
   hint.append(load);
-  box.append(list, hint);
+  const parts = [mark, el('h2', '', 'What changed since you last looked?'), el('p', '', 'Since reads the live web, remembers your questions on this device, and checks them again when you ask.'), list, hint];
+  parts.forEach((node, i) => { node.style.setProperty('--i', i); box.append(node); }); // staggered entrance
   return box;
 }
 
@@ -188,7 +210,7 @@ function openThread(id) {
   renderRail(); updateHeader(); renderTranscript();
 }
 function newChat() {
-  if (busy) return;
+  if (busy || ui.dialog.open) return;
   current = null;
   closeRail();
   renderRail(); updateHeader(); renderTranscript();
@@ -197,9 +219,10 @@ function newChat() {
 function loadSample() {
   if (store.threads().some((t) => t.sample)) return;
   store.importThreads(sampleThreads());
-  renderRail(); updateHeader();
+  renderRail(); updateHeader(); syncSettings();
   ui.input.value = '';
   ui.input.placeholder = 'Sample history loaded. Try: On Monday we shortlisted 5 CRM tools. Has any changed pricing since?';
+  if (ui.dialog.open) ui.dialog.close();
   ui.input.focus();
 }
 
@@ -224,7 +247,6 @@ async function readStream(res, onEvent) {
 function setBusy(on) {
   ui.send.textContent = on ? 'Stop' : 'Send';
   ui.send.disabled = !on && !ui.input.value.trim();
-  ui.send.dataset.mode = on ? 'stop' : 'send';
 }
 
 async function send(text) {
@@ -244,7 +266,7 @@ async function send(text) {
   const turn = buildTurn(text);
   ui.transcript.append(turn.root);
 
-  const s = { text: '', sources: [], status: 'Reading your question', ledger: null, meta: null, play: true };
+  const s = { text: '', sources: [], status: 'Reading your question', queries: [], ledger: null, meta: null, play: true };
   let frame = 0;
   const schedule = () => frame || (frame = requestAnimationFrame(() => {
     frame = 0;
@@ -262,19 +284,30 @@ async function send(text) {
   paint(turn, s);
   ui.scroll.scrollTop = ui.scroll.scrollHeight;
 
+  const prefs = settings.get();
+  const history = store.payload(thread.id);
+  const body = {
+    message: text, tz: settings.zone(), pairId,
+    recent: history.recent,
+    memory: prefs.useMemory ? history.memory : [],
+    searchDepth: prefs.searchDepth, answerStyle: prefs.answerStyle,
+  };
+
   let vectors = null;
   let failed = null;
   try {
     const res = await fetch('/api/chat', {
       method: 'POST',
       headers: { 'content-type': 'application/json', accept: 'text/event-stream' },
-      body: JSON.stringify({ message: text, tz, pairId, ...store.payload(thread.id) }),
+      body: JSON.stringify(body),
       signal: ctl.signal,
     });
     if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `Request failed (${res.status})`);
     await readStream(res, (event, d) => {
-      if (event === 'status') s.status = d.text;
-      else if (event === 'sources') s.sources = d.items;
+      if (event === 'status') {
+        s.queries = d.queries ?? [];
+        s.status = s.queries.length ? `Searching the web · ${s.queries.length} ${s.queries.length === 1 ? 'query' : 'queries'}` : d.text;
+      } else if (event === 'sources') s.sources = d.items;
       else if (event === 'delta') { s.text += d.text; s.status = ''; }
       else if (event === 'ledger') s.ledger = d.rows;
       else if (event === 'vectors') vectors = d.vectors;
@@ -305,6 +338,71 @@ async function send(text) {
   ui.input.focus();
 }
 
+/* ---------- settings dialog ---------- */
+const DEPTH_HINTS = {
+  fast: 'Up to 3 searches and no re-ranking. Quickest, best for simple lookups.',
+  balanced: 'Up to 6 searches, ranked by meaning. The default.',
+  thorough: 'Up to 6 searches with more evidence from each. Slower, and spends more of the free quota.',
+};
+
+function syncSettings() {
+  const s = settings.get();
+  for (const key of ['theme', 'answerStyle', 'searchDepth']) {
+    const radio = ui.dialog.querySelector(`input[name="${key}"][value="${s[key]}"]`);
+    if (radio) radio.checked = true;
+  }
+  $('#use-memory').checked = s.useMemory;
+  const n = store.countPairs();
+  $('#memory-count').textContent = `${n} saved question${n === 1 ? '' : 's'} on this device`;
+  $('#depth-hint').textContent = DEPTH_HINTS[s.searchDepth];
+  $('#timezone').value = s.timezone || settings.detectedZone();
+  $('#tz-hint').textContent = `Used to understand “Monday” and “yesterday”. Detected: ${settings.detectedZone()}.`;
+}
+
+function openSettings() {
+  const list = $('#zones');
+  if (!list.children.length) for (const z of settings.zones()) { const o = el('option'); o.value = z; list.append(o); }
+  syncSettings();
+  ui.dialog.showModal();
+}
+
+function exportHistory() {
+  const data = { exportedAt: new Date().toISOString(), threads: store.threads().map((t) => ({ ...t, pairs: t.pairs.map(({ vec, ...p }) => p) })) };
+  const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }));
+  const a = el('a');
+  a.href = url;
+  a.download = `since-history-${new Date().toISOString().slice(0, 10)}.json`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+ui.dialog.addEventListener('change', (e) => {
+  const t = e.target;
+  if (t.matches('input[type="radio"]')) settings.set({ [t.name]: t.value });
+  else if (t.id === 'use-memory') settings.set({ useMemory: t.checked });
+  else if (t.id === 'timezone') settings.set({ timezone: t.value === settings.detectedZone() ? '' : t.value });
+  syncSettings(); // re-reads the validated values, so a bad time zone snaps back
+});
+ui.dialog.addEventListener('click', (e) => { if (e.target === ui.dialog) ui.dialog.close(); }); // backdrop click
+$('#export-history').onclick = exportHistory;
+$('#load-sample').onclick = loadSample;
+let armed = 0;
+$('#clear-all').onclick = (e) => {
+  const b = e.currentTarget;
+  if (!armed) {
+    b.textContent = 'Click again to clear';
+    b.classList.add('armed');
+    armed = setTimeout(() => { armed = 0; b.textContent = 'Clear memory'; b.classList.remove('armed'); }, 3000);
+    return;
+  }
+  clearTimeout(armed); armed = 0;
+  b.textContent = 'Clear memory'; b.classList.remove('armed');
+  store.clear();
+  ui.dialog.close();
+  newChat();
+};
+$('#open-settings').onclick = openSettings;
+
 /* ---------- wiring ---------- */
 ui.send.addEventListener('click', (e) => { if (busy) { e.preventDefault(); busy.abort(); } });
 $('#composer').addEventListener('submit', (e) => { e.preventDefault(); if (!busy) send(ui.input.value); });
@@ -317,32 +415,25 @@ ui.input.addEventListener('input', () => {
   ui.input.style.height = `${Math.min(ui.input.scrollHeight, 160)}px`;
   if (!busy) ui.send.disabled = !ui.input.value.trim();
 });
+document.addEventListener('keydown', (e) => {
+  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); newChat(); }
+  else if (e.key === '/' && !ui.dialog.open && !/INPUT|TEXTAREA|SELECT/.test(document.activeElement?.tagName ?? '')) { e.preventDefault(); ui.input.focus(); }
+  else if (e.key === 'Escape' && busy && !ui.dialog.open) busy.abort();
+});
 
 // A citation and its margin note light up together.
 const note = (target) => target.closest('.turn')?.querySelector(`.note[data-n="${target.dataset.n}"]`);
-ui.transcript.addEventListener('mouseover', (e) => e.target.classList?.contains('cite') && note(e.target)?.classList.add('hot'));
-ui.transcript.addEventListener('mouseout', (e) => e.target.classList?.contains('cite') && note(e.target)?.classList.remove('hot'));
-ui.transcript.addEventListener('focusin', (e) => e.target.classList?.contains('cite') && note(e.target)?.classList.add('hot'));
-ui.transcript.addEventListener('focusout', (e) => e.target.classList?.contains('cite') && note(e.target)?.classList.remove('hot'));
+for (const [type, on] of [['mouseover', true], ['mouseout', false], ['focusin', true], ['focusout', false]]) {
+  ui.transcript.addEventListener(type, (e) => e.target.classList?.contains('cite') && note(e.target)?.classList.toggle('hot', on));
+}
 
 const closeRail = () => { ui.app.classList.remove('rail-open'); $('#menu').setAttribute('aria-expanded', 'false'); };
 $('#menu').onclick = () => { const open = ui.app.classList.toggle('rail-open'); $('#menu').setAttribute('aria-expanded', String(open)); };
 $('#scrim').onclick = closeRail;
 $('#new-chat').onclick = newChat;
-$('#load-sample').onclick = loadSample;
 
-let armed = 0;
-$('#clear-all').onclick = (e) => {
-  if (!armed) {
-    e.target.textContent = 'Click again to clear';
-    armed = setTimeout(() => { armed = 0; e.target.textContent = 'Clear memory'; }, 3000);
-    return;
-  }
-  clearTimeout(armed); armed = 0;
-  e.target.textContent = 'Clear memory';
-  store.clear();
-  newChat();
-};
+const isMac = /Mac|iPhone|iPad/.test(navigator.platform);
+if (!isMac) document.querySelectorAll('kbd').forEach((k) => { k.textContent = k.textContent.replace('⌘', 'Ctrl+'); });
 
 setBusy(false);
 renderRail(); updateHeader(); renderTranscript();

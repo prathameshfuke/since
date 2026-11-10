@@ -6,23 +6,25 @@
   <title>Since</title>
   <meta name="description" content="Ask a question. Since reads the live web, remembers what you asked, and shows what changed.">
   <meta name="color-scheme" content="light dark">
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%2313212C'/%3E%3Cpath d='M8 12h10' stroke='%23E8EDF0' stroke-width='3' stroke-linecap='round'/%3E%3Cpath d='M8 20h16' stroke='%23FF7AA3' stroke-width='3' stroke-linecap='round'/%3E%3C/svg%3E">
+  <link rel="icon" type="image/svg+xml" href="/mark.svg">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400..700&family=Literata:ital,opsz,wght@0,7..72,400..700;1,7..72,400..700&display=swap">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Instrument+Sans:wght@400..700&family=Newsreader:ital,opsz,wght@0,6..72,300..600;1,6..72,300..600&display=swap">
   <link rel="stylesheet" href="/style.css">
+  <script type="module" src="/settings.js"></script>
 </head>
 <body>
   <a class="skip" href="#composer-input">Skip to the message box</a>
   <div class="app" id="app">
     <aside class="rail" id="rail" aria-label="Conversations">
-      <div class="brand"><span class="mark" aria-hidden="true"></span><span class="word">since</span></div>
-      <button class="new" id="new-chat" type="button">New chat</button>
+      <div class="brand"><img class="mark" src="/mark.svg" alt="" width="30" height="30"><span class="word">since</span></div>
+      <button class="new" id="new-chat" type="button"><span>New chat</span><kbd>⌘K</kbd></button>
       <nav class="threads" id="threads" aria-label="Past conversations"></nav>
       <div class="rail-foot">
-        <button type="button" class="linkish" id="load-sample">Load sample history</button>
-        <button type="button" class="linkish" id="clear-all">Clear memory</button>
-        <p class="privacy">History stays in this browser. Your question and the history relevant to it are sent to the model and search providers.</p>
+        <button type="button" class="settings-open" id="open-settings" aria-haspopup="dialog">
+          <svg viewBox="0 0 20 20" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><circle cx="10" cy="10" r="2.6"/><path d="M10 2.5v2M10 15.5v2M17.5 10h-2M4.5 10h-2M15.3 4.7l-1.4 1.4M6.1 13.9l-1.4 1.4M15.3 15.3l-1.4-1.4M6.1 6.1 4.7 4.7"/></svg>
+          <span>Settings</span>
+        </button>
       </div>
     </aside>
     <div class="scrim" id="scrim"></div>
@@ -44,6 +46,72 @@
       </form>
     </main>
   </div>
+
+  <dialog class="settings" id="settings" aria-labelledby="settings-title">
+    <form method="dialog" class="sheet">
+      <header class="sheet-head">
+        <h2 id="settings-title">Settings</h2>
+        <button class="x" value="close" aria-label="Close settings">
+          <svg viewBox="0 0 20 20" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M5 5l10 10M15 5L5 15"/></svg>
+        </button>
+      </header>
+
+      <fieldset class="group" data-key="theme">
+        <legend>Appearance</legend>
+        <div class="seg" role="radiogroup" aria-label="Theme">
+          <label><input type="radio" name="theme" value="system"><span>System</span></label>
+          <label><input type="radio" name="theme" value="light"><span>Light</span></label>
+          <label><input type="radio" name="theme" value="dark"><span>Dark</span></label>
+        </div>
+      </fieldset>
+
+      <fieldset class="group" data-key="answerStyle">
+        <legend>Answers</legend>
+        <div class="seg" role="radiogroup" aria-label="Answer style">
+          <label><input type="radio" name="answerStyle" value="concise"><span>Concise</span></label>
+          <label><input type="radio" name="answerStyle" value="detailed"><span>Detailed</span></label>
+        </div>
+        <p class="hint">Concise leads with the answer in a few lines. Detailed adds the reasoning and caveats.</p>
+      </fieldset>
+
+      <fieldset class="group" data-key="searchDepth">
+        <legend>Search depth</legend>
+        <div class="seg" role="radiogroup" aria-label="Search depth">
+          <label><input type="radio" name="searchDepth" value="fast"><span>Fast</span></label>
+          <label><input type="radio" name="searchDepth" value="balanced"><span>Balanced</span></label>
+          <label><input type="radio" name="searchDepth" value="thorough"><span>Thorough</span></label>
+        </div>
+        <p class="hint" id="depth-hint"></p>
+      </fieldset>
+
+      <fieldset class="group">
+        <legend>Memory</legend>
+        <label class="switch">
+          <input type="checkbox" id="use-memory" role="switch">
+          <span class="track" aria-hidden="true"></span>
+          <span class="switch-text">Use saved history when answering<small id="memory-count"></small></span>
+        </label>
+        <div class="row">
+          <button type="button" class="pill" id="export-history">Export</button>
+          <button type="button" class="pill" id="load-sample">Load sample history</button>
+          <button type="button" class="pill danger" id="clear-all">Clear memory</button>
+        </div>
+      </fieldset>
+
+      <fieldset class="group">
+        <legend>Time zone</legend>
+        <input class="field" id="timezone" list="zones" autocomplete="off" spellcheck="false" aria-describedby="tz-hint">
+        <datalist id="zones"></datalist>
+        <p class="hint" id="tz-hint"></p>
+      </fieldset>
+
+      <footer class="sheet-foot">
+        <p>History stays in this browser. Your question and the history relevant to it are sent to the model and search providers to answer.</p>
+        <p class="keys"><kbd>⌘K</kbd> new chat <kbd>/</kbd> focus the message box <kbd>Esc</kbd> stop</p>
+      </footer>
+    </form>
+  </dialog>
+
   <script type="module" src="/app.js"></script>
 </body>
 </html>

@@ -69,6 +69,8 @@ function sanitize(b) {
     message,
     tz,
     pairId: str(b.pairId, 64),
+    depth: ['fast', 'balanced', 'thorough'].includes(b.searchDepth) ? b.searchDepth : 'balanced',
+    style: b.answerStyle === 'detailed' ? 'detailed' : 'concise',
     recent: (Array.isArray(b.recent) ? b.recent : []).slice(-6).map(turn),
     memory: (Array.isArray(b.memory) ? b.memory : []).slice(-300).map(turn).filter((p) => p.id && p.q),
   };
