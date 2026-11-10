@@ -67,8 +67,9 @@ function systemPrompt({ now, tz, refs, hits, note, pastIntent, sinceDay, results
     '- Give dates: "as of 8 Nov" using the result date. If a result has no date, say its date is unknown. Never present an old source as current.',
     '- No evidence of a change is not "no change". If nothing newer turned up, say "no change found in sources published after <date>".',
     style === 'detailed'
-      ? '- Give a fuller answer, up to about 300 words: short sections, the reasoning behind a conclusion, and the caveats worth knowing. Plain words. Ask one question only when you cannot proceed without it.'
-      : '- Be concise. Short paragraphs. A list only for parallel items. Plain words. Ask one question only when you cannot proceed without it.',
+      ? '- Length: DETAILED. Write 250 to 350 words, never fewer than 200 unless the question is trivial. Start with a two-sentence answer, then short sections with plain headings: the evidence (every figure with its [n] and date), how the sources compare or disagree, the caveats and what could not be confirmed, and what to do next. Explain the reasoning behind the conclusion. Do not pad, but do not stop at a summary. Plain words.'
+      : '- Length: CONCISE. At most 80 words: the answer, the key figures with [n], one caveat if it matters. No headings. A list only for parallel items. Plain words.',
+    '- Ask one question only when you cannot proceed without it.',
   ];
 
   if (refs.length) lines.push('', 'Dates in the user message, resolved: ' + refs.map(showRef).join('; ') + '.');
@@ -85,7 +86,7 @@ function systemPrompt({ now, tz, refs, hits, note, pastIntent, sinceDay, results
       `${FENCE}changes`,
       '[{"item":"HubSpot Starter","then":"$20/seat/month","now":"$23/seat/month","status":"changed","src":2}]',
       FENCE,
-      '  status is "changed", "same" or "unverified" (no evidence found). "src" is the n of the result, or null. Keep each value under 40 characters. Do not restate the rows in prose: the written summary is one or two sentences saying what changed, and what could not be confirmed.',
+      '  status is "changed", "same" or "unverified" (no evidence found). "src" is the n of the result, or null. Keep each value under 40 characters. Do not restate the rows in prose: the written summary is ' + (style === 'detailed' ? 'a short paragraph or two' : 'one or two sentences') + ' saying what changed, and what could not be confirmed.',
       '- Use "same" or "changed" only when a cited result states the current value, and copy the figure exactly as the result writes it. A result that does not mention the value is NOT evidence that it is unchanged: use "unverified". Never confirm a price you did not see in a result.',
     );
   }
