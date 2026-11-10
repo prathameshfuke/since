@@ -4,7 +4,7 @@
 import http from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { extname, join, normalize, sep } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { runAgent } from './agent.js';
 import { configured } from './llm.js';
 import { DIMS } from './embed.js';
@@ -38,6 +38,9 @@ const json = (res, status, body) => {
 };
 
 async function readBody(req) {
+  // Vercel parses JSON bodies before the handler runs, so the stream is already consumed there.
+  if (req.body && typeof req.body === 'object' && !Buffer.isBuffer(req.body)) return req.body;
+  if (typeof req.body === 'string') return JSON.parse(req.body || '{}');
   let size = 0;
   const chunks = [];
   for await (const c of req) {
@@ -71,8 +74,8 @@ function sanitize(b) {
   };
 }
 
-async function chat(req, res) {
-  const ip = req.socket.remoteAddress ?? '?';
+export async function chat(req, res) {
+  const ip = String(req.headers['x-forwarded-for'] || '').split(',')[0].trim() || req.socket?.remoteAddress || '?';
   if (limited(ip)) return json(res, 429, { error: 'Too many requests. Wait a minute and try again.' });
   let input;
   try { input = sanitize(await readBody(req)); } catch (e) { return json(res, e.status || 400, { error: e.status ? e.message : 'Send JSON: {"message": "..."}' }); }
@@ -120,18 +123,20 @@ async function serveStatic(req, res) {
   }
 }
 
+export function health(req, res) {
+  json(res, 200, {
+    ok: true,
+    models: configured().map((p) => `${p.id}:${p.model}`),
+    search: [process.env.LANGSEARCH_API_KEY && 'langsearch', process.env.TAVILY_API_KEY && 'tavily'].filter(Boolean),
+    embeddings: Boolean(process.env.GEMINI_API_KEY),
+  });
+}
+
 const server = http.createServer(async (req, res) => {
   try {
     const { pathname } = new URL(req.url, 'http://x');
     if (req.method === 'POST' && pathname === '/api/chat') return await chat(req, res);
-    if (req.method === 'GET' && pathname === '/api/health') {
-      return json(res, 200, {
-        ok: true,
-        models: configured().map((p) => `${p.id}:${p.model}`),
-        search: [process.env.LANGSEARCH_API_KEY && 'langsearch', process.env.TAVILY_API_KEY && 'tavily'].filter(Boolean),
-        embeddings: Boolean(process.env.GEMINI_API_KEY),
-      });
-    }
+    if (req.method === 'GET' && pathname === '/api/health') return health(req, res);
     if (req.method === 'GET') return await serveStatic(req, res);
     json(res, 405, { error: 'Method not allowed' });
   } catch (e) {
@@ -141,8 +146,11 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-server.listen(PORT, () => {
-  console.log(`Since is running at http://localhost:${PORT}`);
-  const missing = ['GROQ_API_KEY', 'LANGSEARCH_API_KEY', 'GEMINI_API_KEY'].filter((k) => !process.env[k]);
-  if (missing.length) console.warn(`Missing in .env: ${missing.join(', ')} (see .env.example)`);
-});
+// Listen only when run directly (npm run dev). Vercel imports `chat` and `health` instead.
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  server.listen(PORT, () => {
+    console.log(`Since is running at http://localhost:${PORT}`);
+    const missing = ['GROQ_API_KEY', 'LANGSEARCH_API_KEY', 'GEMINI_API_KEY'].filter((k) => !process.env[k]);
+    if (missing.length) console.warn(`Missing in .env: ${missing.join(', ')} (see .env.example)`);
+  });
+}

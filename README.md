@@ -4,6 +4,8 @@ A chat agent with one tool, web search, built for questions that change over tim
 
 It remembers what you asked, finds the earlier conversation by date or by meaning, re-checks each claim against the live web, and shows the result as a ledger: earlier value, current value, status. A row only says "Still current" or "Changed" if the cited source text actually contains the figure.
 
+**Live demo:** https://since-neon.vercel.app (free tiers, so it can be slow or rate-limited under load)
+
 ## Run it
 
 ```sh
@@ -48,6 +50,10 @@ Returns `{ answer, sources, meta }`. Send `accept: text/event-stream` for stream
 To give the agent memory over the API, pass history in the body: `memory: [{ id, ts, q, a }]` and `recent: [{ id, q, a }]`. The server stores nothing.
 
 `GET /api/health` lists which providers are configured (names only).
+
+## Deploy (Vercel)
+
+`api/chat.js` and `api/health.js` re-export the same handlers the local server uses, `public/` is served as static files, and `vercel.json` sets the function timeout and security headers. Add the keys from `.env.example` as environment variables, then `npx vercel deploy --prod`. The server is stateless, so no database is needed.
 
 ## Layout
 

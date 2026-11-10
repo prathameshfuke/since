@@ -6,3 +6,5 @@ node_modules/
 *.log
 .impeccable/
 concepts_brief.md
+.vercel
+.env*
