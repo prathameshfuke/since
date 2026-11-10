@@ -66,6 +66,12 @@ function systemPrompt({ now, tz, refs, hits, note, pastIntent, sinceDay, results
     '- Prefer a vendor\'s own pages over aggregators and blogs for prices and features. Say when you rely on a weaker source.',
     '- Give dates: "as of 8 Nov" using the result date. If a result has no date, say its date is unknown. Never present an old source as current.',
     '- No evidence of a change is not "no change". If nothing newer turned up, say "no change found in sources published after <date>".',
+    '- Numbers worth seeing (a stock or crypto price, a trend, a benchmark, figures compared across things): after the written answer add ONE fenced block, exactly in this shape:',
+    `${FENCE}chart`,
+    '{"title":"NVIDIA (NVDA)","unit":"$","stats":[{"label":"Price","value":"$188.50","src":1},{"label":"Day","value":"+1.2%","src":1}],"series":[{"x":"3 Nov","y":186.2,"src":2},{"x":"4 Nov","y":187.9,"src":2},{"x":"5 Nov","y":188.5,"src":2}]}',
+    FENCE,
+    '  "stats": up to 4 key figures (price, change, day or 52-week range, market cap, volume). "series": only when the sources give 3 or more dated values (for example daily closes), oldest first, at most 30. Copy every figure exactly as the source writes it, with the n of that result in "src". No source, no figure: never estimate, round or fill gaps. If the sources only give a current price, send stats and no series. Skip the block for questions that are not numeric.',
+    '- For stocks and markets: report what sources say as of their date, name the exchange and currency, and add a short clause that this is information, not investment advice.',
     style === 'detailed'
       ? '- Length: DETAILED. Write 250 to 350 words, never fewer than 200 unless the question is trivial. Start with a two-sentence answer, then short sections with plain headings: the evidence (every figure with its [n] and date), how the sources compare or disagree, the caveats and what could not be confirmed, and what to do next. Explain the reasoning behind the conclusion. Do not pad, but do not stop at a summary. Plain words.'
       : '- Length: CONCISE. At most 80 words: the answer, the key figures with [n], one caveat if it matters. No headings. A list only for parallel items. Plain words.',
@@ -116,6 +122,7 @@ async function plan({ message, now, tz, refs, hits, sinceDay, recent, signal, de
     '- search=true for anything that can change (prices, plans, releases, versions, news, availability) or that needs sources.',
     '- One query per thing to check. Five products means five queries. Never put two products in one query. Max ' + maxQueries + '.',
     '- Each q is standalone and names the product or topic. No pronouns. Do NOT put dates or words like "since" or "change" in q: the date goes in "after". For a price use e.g. "HubSpot Sales Hub Starter price per seat". If the user asks about pricing OR big releases, use one query per product such as "HubSpot pricing and major new features".',
+    '- For a stock, coin or market, plan two queries: one for the live quote (e.g. "NVIDIA NVDA stock price today") and one for the recent trend (e.g. "NVIDIA NVDA stock price history this week closing prices"), plus one for news if the user asks why it moved.',
     '- "must" is ONE lowercase word that every relevant page mentions: the product or topic name, e.g. "hubspot".',
     '- "after" is a YYYY-MM-DD day, or null. Set it for news, releases and "what changed since" questions. When re-checking an earlier answer, use the date of that earlier conversation. For plain "what is it now" questions use null.',
     `Today is ${stamp}.`,
@@ -189,6 +196,30 @@ export function verifyLedger(text, texts, earlier = '') {
     return row;
   });
 }
+/**
+ * Parses the model's ```chart block and keeps only figures a cited source really contains.
+ * A stat or a point whose number is not in its source text is dropped. A series needs 3+ surviving points.
+ */
+export function verifyChart(text, texts) {
+  const m = text.match(/```chart\s*([\s\S]*?)```/);
+  if (!m) return null;
+  let j;
+  try { j = JSON.parse(m[1]); } catch { return null; }
+  const flat = (n) => (texts.get(n) || '').replace(/,/g, '');
+  const figs = (v) => (String(v).match(/\d[\d,.]*\d|\d/g) || []).map((f) => f.replace(/,/g, ''));
+  const stats = (Array.isArray(j?.stats) ? j.stats : []).slice(0, 4)
+    .filter((x) => x && typeof x.label === 'string' && typeof x.value === 'string' && Number.isInteger(x.src)
+      && figs(x.value).some((f) => flat(x.src).includes(f)))
+    .map((x) => ({ label: trim(x.label, 24), value: trim(x.value, 24), src: x.src }));
+  const series = (Array.isArray(j?.series) ? j.series : []).slice(0, 30)
+    .filter((x) => x && typeof x.x === 'string' && Number.isFinite(x.y) && Number.isInteger(x.src)
+      && [String(x.y), x.y.toFixed(2)].some((f) => flat(x.src).includes(f)))
+    .map((x) => ({ x: trim(x.x, 12), y: x.y, src: x.src }));
+  const keep = series.length >= 3 ? series : [];
+  if (!stats.length && !keep.length) return null;
+  return { title: trim(String(j.title ?? ''), 60), unit: trim(String(j.unit ?? ''), 4), stats, series: keep };
+}
+
 /** Runs a batch of searches together (one batched ranking call underneath) and numbers the results. */
 async function searchAll(list, reg, ctx) {
   const run = list.slice(0, Math.max(0, MAX_SEARCHES - reg.searches));
@@ -318,6 +349,9 @@ export async function* runAgent({ message, tz = 'UTC', pairId, recent = [], memo
 
   const ledger = verifyLedger(answer, reg.texts, hits.map((p) => p.a).join(' '));
   if (ledger) yield { event: 'ledger', data: { rows: ledger } }; // the browser renders this, not the raw block
+
+  const chart = verifyChart(answer, reg.texts);
+  if (chart) yield { event: 'chart', data: chart };
 
   yield {
     event: 'done',

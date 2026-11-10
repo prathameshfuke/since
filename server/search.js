@@ -45,7 +45,7 @@ export function extract(text, query, budget = 400) {
   const clean = String(text || '').replace(/\s+/g, ' ').trim();
   if (clean.length <= budget) return clean;
   const wanted = new Set(terms(query));
-  const sentences = clean.match(/[^.!?]+[.!?]+(?:\s|$)|[^.!?]+$/g) || [clean];
+  const sentences = clean.match(/(?:[^.!?]|[.!?](?=\S))+(?:[.!?]+(?:\s|$)|$)/g) || [clean];
   const scored = sentences.map((s, i) => ({
     s: s.trim(), i,
     score: terms(s).filter((w) => wanted.has(w)).length + (FIGURE.test(s) ? 0.8 : 0) + (i === 0 ? 0.05 : 0),

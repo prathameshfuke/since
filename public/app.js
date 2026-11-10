@@ -103,6 +103,62 @@ function ledgerEl(rows, sources, play) {
   return table;
 }
 
+const SVGNS = 'http://www.w3.org/2000/svg';
+const svg = (tag, attrs = {}, text) => {
+  const n = document.createElementNS(SVGNS, tag);
+  for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, v);
+  if (text != null) n.textContent = text;
+  return n;
+};
+
+/** Verified figures as small stat tiles plus (when the sources gave enough dated points) a flat line chart. */
+function chartEl(c, sources, play) {
+  const root = el('figure', `chart${play ? ' play' : ''}`);
+  const bySrc = new Map(sources.map((s) => [s.n, s]));
+  const cite = (n) => {
+    const s = bySrc.get(n);
+    if (!s) return null;
+    const a = el('a', 'cite', String(n));
+    a.href = s.url; a.target = '_blank'; a.rel = 'noopener noreferrer'; a.title = `${s.title || s.domain} (${s.domain})`;
+    return a;
+  };
+  if (c.title) root.append(el('figcaption', '', c.title));
+  if (c.stats?.length) {
+    const row = el('dl', 'stats');
+    for (const x of c.stats) {
+      const d = el('div');
+      const dd = el('dd', '', x.value);
+      const a = cite(x.src);
+      if (a) dd.append(' ', a);
+      d.append(el('dt', '', x.label), dd);
+      row.append(d);
+    }
+    root.append(row);
+  }
+  const pts = c.series ?? [];
+  if (pts.length >= 3) {
+    const W = 640, H = 200, L = 8, R = 56, T = 12, B = 26;
+    const ys = pts.map((p) => p.y);
+    const lo = Math.min(...ys), hi = Math.max(...ys), pad = (hi - lo || Math.abs(hi) * 0.02 || 1) * 0.15;
+    const y0 = lo - pad, y1 = hi + pad;
+    const px = (i) => L + (i * (W - L - R)) / (pts.length - 1);
+    const py = (v) => T + ((y1 - v) * (H - T - B)) / (y1 - y0);
+    const g = svg('svg', { viewBox: `0 0 ${W} ${H}`, role: 'img', 'aria-label': `${c.title || 'Chart'}: ${pts[0].x} to ${pts.at(-1).x}, ${ys[0]} to ${ys.at(-1)}` });
+    for (const v of [lo, (lo + hi) / 2, hi]) {
+      g.append(svg('line', { x1: L, x2: W - R, y1: py(v), y2: py(v), class: 'grid' }));
+      g.append(svg('text', { x: W - R + 6, y: py(v) + 4, class: 'tick' }, `${c.unit || ''}${Number(v.toFixed(2))}`));
+    }
+    const d = pts.map((p, i) => `${i ? 'L' : 'M'}${px(i).toFixed(1)} ${py(p.y).toFixed(1)}`).join(' ');
+    g.append(svg('path', { d, class: 'line', pathLength: 1 }));
+    g.append(svg('circle', { cx: px(pts.length - 1), cy: py(ys.at(-1)), r: 3.5, class: 'dot' }));
+    g.append(svg('text', { x: L, y: H - 6, class: 'tick' }, pts[0].x));
+    g.append(svg('text', { x: W - R, y: H - 6, class: 'tick', 'text-anchor': 'end' }, pts.at(-1).x));
+    pts.forEach((p, i) => { const t = svg('circle', { cx: px(i), cy: py(p.y), r: 8, class: 'hit' }); t.append(svg('title', {}, `${p.x}: ${c.unit || ''}${p.y}`)); g.append(t); });
+    root.append(g);
+  }
+  return root;
+}
+
 function copyButton(getText) {
   const b = el('button', 'copy');
   b.type = 'button';
@@ -122,12 +178,13 @@ function paint(t, s) {
   const { text, pending } = splitChanges(s.text);
   const usedSources = cited(s.text, s.sources);
   const live = s.status && !s.text ? '<p class="live"><img class="glyph" src="/mark.svg" alt=""><span class="shimmer"></span></p>' : '';
-  t.a.innerHTML = live + render(text, s.sources) + (pending ? '<p class="comparing">Comparing with your earlier answer…</p>' : '');
+  t.a.innerHTML = live + render(text, s.sources) + (pending ? '<p class="comparing">Preparing the comparison…</p>' : '');
   if (live) {
     const span = t.a.querySelector('.shimmer');
     span.textContent = s.status;
     if (s.queries?.length) span.title = s.queries.join('\n');
   }
+  if (s.chart) t.a.append(chartEl(s.chart, s.sources, s.play));
   if (s.ledger?.length) t.a.append(ledgerEl(s.ledger, s.sources, s.play));
 
   t.notes.replaceChildren(...usedSources.map((n) => {
@@ -174,7 +231,7 @@ function renderTranscript() {
     const label = dayLabel(p.ts);
     if (label !== last) { ui.transcript.append(divider(p.ts)); last = label; }
     const turn = buildTurn(p.q);
-    paint(turn, { text: p.a, sources: p.sources ?? [], ledger: p.ledger, meta: p.meta, status: '' });
+    paint(turn, { text: p.a, sources: p.sources ?? [], ledger: p.ledger, chart: p.chart, meta: p.meta, status: '' });
     turn.root.style.animation = 'none'; // history appears at once; only new turns animate
     ui.transcript.append(turn.root);
   }
@@ -273,7 +330,7 @@ async function send(text) {
   const turn = buildTurn(text);
   ui.transcript.append(turn.root);
 
-  const s = { text: '', sources: [], status: 'Reading your question', queries: [], ledger: null, meta: null, play: true };
+  const s = { text: '', sources: [], status: 'Reading your question', queries: [], ledger: null, chart: null, meta: null, play: true };
   let frame = 0;
   const schedule = () => frame || (frame = requestAnimationFrame(() => {
     frame = 0;
@@ -323,6 +380,7 @@ async function send(text) {
       } else if (event === 'sources') s.sources = d.items;
       else if (event === 'delta') { s.text += d.text; s.status = ''; }
       else if (event === 'ledger') s.ledger = d.rows;
+      else if (event === 'chart') s.chart = d;
       else if (event === 'vectors') vectors = d.vectors;
       else if (event === 'done') s.meta = d;
       else if (event === 'error') throw new Error(d.message);
@@ -342,7 +400,7 @@ async function send(text) {
     if (failed) s.text += `\n\n(Stopped: ${failed})`;
     paint(turn, s);
     if (s.text.trim()) {
-      store.addPair(thread.id, { id: pairId, ts, q: text, a: s.text, sources: s.sources, ledger: s.ledger ?? undefined, meta: s.meta ?? undefined });
+      store.addPair(thread.id, { id: pairId, ts, q: text, a: s.text, sources: s.sources, ledger: s.ledger ?? undefined, chart: s.chart ?? undefined, meta: s.meta ?? undefined });
       if (vectors) store.applyVectors(vectors);
     }
   }

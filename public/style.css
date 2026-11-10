@@ -277,3 +277,23 @@ kbd { font: 500 .75rem var(--mono); color: var(--ink-2); border: 1px solid var(-
   *, *::before, *::after { animation: none !important; transition: none !important; }
   .shimmer { color: var(--ink-2); -webkit-mask-image: none; mask-image: none; }
 }
+
+/* ---- charts: verified figures only, flat, ink on paper ---- */
+.chart { margin: 1.1rem 0 .4rem; padding: 0; }
+.chart figcaption { font: 500 .78rem var(--mono); color: var(--ink-2); margin-bottom: .6rem; }
+.chart .stats { display: flex; flex-wrap: wrap; gap: 0; margin: 0 0 .9rem; border-top: 1px solid var(--ink); }
+.chart .stats div { flex: 1 1 8rem; padding: .6rem .9rem .6rem 0; border-bottom: 1px solid var(--rule); }
+.chart dt { font: 500 .75rem var(--mono); color: var(--ink-2); }
+.chart dd { margin: .15rem 0 0; font: 500 1.35rem/1.2 var(--serif); font-variant-numeric: tabular-nums; }
+.chart svg { display: block; width: 100%; height: auto; overflow: visible; }
+.chart .grid { stroke: var(--rule); stroke-width: 1; }
+.chart .tick { font: 400 11px var(--mono); fill: var(--ink-2); }
+.chart .line { fill: none; stroke: var(--ink); stroke-width: 1.6; stroke-linejoin: round; stroke-linecap: round; }
+.chart .dot { fill: var(--ink); }
+.chart .hit { fill: transparent; }
+.chart .hit:hover { fill: color-mix(in srgb, var(--ink) 12%, transparent); }
+.chart.play .line { stroke-dasharray: 1; stroke-dashoffset: 1; animation: draw .9s .15s cubic-bezier(.3, .6, .2, 1) forwards; }
+.chart.play .dot { opacity: 0; animation: fade .3s 1s forwards; }
+@keyframes draw { to { stroke-dashoffset: 0; } }
+@keyframes fade { to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .chart.play .line { animation: none; stroke-dashoffset: 0; } .chart.play .dot { animation: none; opacity: 1; } }

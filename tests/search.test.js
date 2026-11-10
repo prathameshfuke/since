@@ -59,3 +59,9 @@ test('recall fuses meaning and keywords, and still returns nothing for unrelated
 test('freshness is unchanged by the refactor', () => {
   assert.equal(freshness('2026-11-03', undefined, '2026-11-10'), '2026-11-03..2026-11-10');
 });
+
+test('a decimal point does not split a sentence or lose the text before it', async () => {
+  const { extract } = await import('../server/search.js');
+  const out = extract('NVDA trades at 188.63 USD, up 1.2% today. Unrelated filler about cooking.', 'NVDA price today', 300);
+  assert.match(out, /188\.63 USD/);
+});

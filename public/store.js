@@ -1,7 +1,7 @@
 // Memory lives here, in the browser. The server keeps nothing, so the app works the same on a
 // laptop and on a host that wipes its disk. Shape:
 //   thread = { id, title, created, updated, sample?, pairs: [pair] }
-//   pair   = { id, ts (ISO), q, a, vec?: number[384], sources?: [], ledger?: [], meta? }
+//   pair   = { id, ts (ISO), q, a, vec?: number[384], sources?: [], ledger?: [], chart?: {}, meta? }
 
 const KEY = 'since.v1';
 const uid = () => crypto.randomUUID?.() ?? `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { verifyLedger } from '../server/agent.js';
+import { verifyLedger, verifyChart } from '../server/agent.js';
 import { freshness } from '../server/search.js';
 import { render, cited, splitChanges, normalizeCites } from '../public/md.js';
 
@@ -73,4 +73,23 @@ test('gpt-oss citation style is understood and changes blocks are hidden', () =>
   assert.equal(normalizeCites('Price is $5【1†source】.'), 'Price is $5[1].');
   assert.deepEqual(splitChanges(`Hello\n${FENCE}changes\n[]\n${FENCE}`), { text: 'Hello', pending: false });
   assert.deepEqual(splitChanges(`Hello\n${FENCE}changes\n[{"item"`), { text: 'Hello', pending: true });
+});
+
+const cblock = (o) => `Answer.\n${FENCE}chart\n${JSON.stringify(o)}\n${FENCE}`;
+const quotes = new Map([[1, 'NVDA 188.50 up 1.2% today'], [2, 'closes: Nov 3 186.2, Nov 4 187.9, Nov 5 188.5']]);
+
+test('chart keeps only figures a source contains; series needs 3 real points', () => {
+  const c = verifyChart(cblock({
+    title: 'NVDA', unit: '$',
+    stats: [{ label: 'Price', value: '$188.50', src: 1 }, { label: 'Cap', value: '$9T', src: 1 }],
+    series: [{ x: 'Nov 3', y: 186.2, src: 2 }, { x: 'Nov 4', y: 187.9, src: 2 }, { x: 'Nov 5', y: 188.5, src: 2 }, { x: 'Nov 6', y: 999, src: 2 }],
+  }), quotes);
+  assert.deepEqual(c.stats.map((x) => x.label), ['Price']);
+  assert.equal(c.series.length, 3);
+});
+
+test('chart: two real points are not a trend, and no block means no chart', () => {
+  const c = verifyChart(cblock({ stats: [], series: [{ x: 'a', y: 186.2, src: 2 }, { x: 'b', y: 187.9, src: 2 }] }), quotes);
+  assert.equal(c, null);
+  assert.equal(verifyChart('Just prose.', quotes), null);
 });

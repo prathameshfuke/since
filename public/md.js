@@ -17,10 +17,10 @@ export function cited(text, sources) {
   return [...out].sort((a, b) => a - b);
 }
 
-/** Removes ```changes blocks (the server sends verified rows separately). `pending` = one is still streaming. */
+/** Removes ```changes and ```chart blocks (the server sends the verified versions separately). `pending` = one is still streaming. */
 export function splitChanges(text) {
-  let rest = text.replace(/```changes[ \t]*\n?[\s\S]*?```/g, '');
-  const open = rest.indexOf('```changes');
+  let rest = text.replace(/```(?:changes|chart)[ \t]*\n?[\s\S]*?```/g, '');
+  const open = rest.search(/```(?:changes|chart)/);
   if (open === -1) return { text: rest.trimEnd(), pending: false };
   rest = rest.slice(0, open);
   return { text: rest.trimEnd(), pending: true };
