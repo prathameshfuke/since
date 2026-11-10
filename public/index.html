@@ -112,6 +112,22 @@
     </form>
   </dialog>
 
+  <dialog class="settings" id="gate" aria-labelledby="gate-title">
+    <form class="sheet" id="gate-form">
+      <header class="sheet-head"><h2 id="gate-title">Invite-only demo</h2></header>
+      <div class="group">
+        <p class="hint">Enter the access code you were given. It also keeps bots from using up the free model quota.</p>
+        <label class="sr" for="gate-code">Access code</label>
+        <input class="field" id="gate-code" type="password" autocomplete="off" spellcheck="false">
+        <p class="gate-error" id="gate-error" role="alert"></p>
+      </div>
+      <footer class="sheet-foot gate-actions">
+        <button type="button" class="pill" id="gate-cancel">Cancel</button>
+        <button type="submit" class="pill solid">Continue</button>
+      </footer>
+    </form>
+  </dialog>
+
   <script type="module" src="/app.js"></script>
 </body>
 </html>

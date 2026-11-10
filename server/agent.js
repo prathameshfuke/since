@@ -85,7 +85,7 @@ function systemPrompt({ now, tz, refs, hits, note, pastIntent, sinceDay, results
       `${FENCE}changes`,
       '[{"item":"HubSpot Starter","then":"$20/seat/month","now":"$23/seat/month","status":"changed","src":2}]',
       FENCE,
-      '  status is "changed", "same" or "unverified" (no evidence found). "src" is the n of the result, or null. Keep each value under 40 characters. Do not repeat the block as a table in prose.',
+      '  status is "changed", "same" or "unverified" (no evidence found). "src" is the n of the result, or null. Keep each value under 40 characters. Do not restate the rows in prose: the written summary is one or two sentences saying what changed, and what could not be confirmed.',
       '- Use "same" or "changed" only when a cited result states the current value, and copy the figure exactly as the result writes it. A result that does not mention the value is NOT evidence that it is unchanged: use "unverified". Never confirm a price you did not see in a result.',
     );
   }

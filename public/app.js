@@ -2,6 +2,7 @@ import * as store from './store.js';
 import * as settings from './settings.js';
 import { render, cited, splitChanges } from './md.js';
 import { sampleThreads, samplePrompts } from './sample.js';
+import { ensureSession, forget } from './gate.js';
 
 const $ = (sel) => document.querySelector(sel);
 const el = (tag, cls, text) => {
@@ -135,6 +136,7 @@ function paint(t, s) {
     li.dataset.n = n;
     const a = el('a');
     a.href = src.url; a.target = '_blank'; a.rel = 'noopener noreferrer';
+    a.title = src.title || src.domain;
     a.append(el('span', 'n', String(n)), el('span', 't', src.title || src.domain), el('span', 'd', [src.domain, src.date && new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short' }).format(new Date(src.date))].filter(Boolean).join(' · ')));
     li.append(a);
     return li;
@@ -184,20 +186,25 @@ function hero() {
   const mark = el('img', 'hero-mark');
   mark.src = '/mark.svg'; mark.alt = ''; mark.width = 54; mark.height = 54;
   const list = el('ul', 'prompts');
-  for (const q of samplePrompts()) {
+  for (const { label, text } of samplePrompts()) {
     const li = el('li');
-    const b = el('button', '', q);
+    const b = el('button', '', label);
     b.type = 'button';
-    b.onclick = () => send(q);
+    b.title = text;
+    b.onclick = () => send(text);
     li.append(b);
     list.append(li);
   }
-  const hint = el('p', 'hint', 'The first one works right away. The other three refer to earlier conversations, so load the sample history first. ');
-  const load = el('button', 'linkish', 'Load sample history');
-  load.type = 'button';
-  load.onclick = loadSample;
-  hint.append(load);
-  const parts = [mark, el('h2', '', 'What changed since you last looked?'), el('p', '', 'Since reads the live web, remembers your questions on this device, and checks them again when you ask.'), list, hint];
+  const parts = [mark, el('h2', '', 'What changed since you last looked?'), el('p', '', 'Ask anything. Since checks the live web, remembers what you asked, and re-checks it later.'), list];
+  if (!store.threads().some((t) => t.sample)) {
+    // Three of the suggestions refer to earlier chats, so offer the sample history once, quietly.
+    const hint = el('p', 'hint', 'Suggestions 2 to 4 refer to earlier chats. ');
+    const load = el('button', 'linkish', 'Load sample history');
+    load.type = 'button';
+    load.onclick = loadSample;
+    hint.append(load);
+    parts.push(hint);
+  }
   parts.forEach((node, i) => { node.style.setProperty('--i', i); box.append(node); }); // staggered entrance
   return box;
 }
@@ -296,13 +303,19 @@ async function send(text) {
   let vectors = null;
   let failed = null;
   try {
+    // Bot check: a no-op unless the server has the gate switched on (see server/session.js).
+    const ready = await ensureSession({ askCode, status: (t) => { s.status = t; schedule(); } });
+    if (!ready) throw new Error('An access code is needed to use this demo.');
     const res = await fetch('/api/chat', {
       method: 'POST',
       headers: { 'content-type': 'application/json', accept: 'text/event-stream' },
       body: JSON.stringify(body),
       signal: ctl.signal,
     });
-    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `Request failed (${res.status})`);
+    if (!res.ok) {
+      if (res.status === 401) forget(); // session expired: the next send re-checks
+      throw new Error((await res.json().catch(() => ({}))).error || `Request failed (${res.status})`);
+    }
     await readStream(res, (event, d) => {
       if (event === 'status') {
         s.queries = d.queries ?? [];
@@ -336,6 +349,22 @@ async function send(text) {
   setBusy(false);
   renderRail(); updateHeader();
   ui.input.focus();
+}
+
+/** Asks for the access code when the server is invite-only. Resolves to the code, or null if cancelled. */
+function askCode(message) {
+  const dlg = $('#gate');
+  const input = $('#gate-code');
+  $('#gate-error').textContent = message;
+  input.value = '';
+  return new Promise((resolve) => {
+    let value = null;
+    $('#gate-form').onsubmit = (e) => { e.preventDefault(); value = input.value.trim(); dlg.close(); };
+    $('#gate-cancel').onclick = () => dlg.close();
+    dlg.addEventListener('close', () => resolve(value), { once: true });
+    dlg.showModal();
+    input.focus();
+  });
 }
 
 /* ---------- settings dialog ---------- */

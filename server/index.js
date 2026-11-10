@@ -8,6 +8,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { runAgent } from './agent.js';
 import { configured } from './llm.js';
 import { DIMS } from './embed.js';
+import { gateEnabled, needsCode, newChallenge, redeem, sessionOf, cookieFor } from './session.js';
 
 const PUBLIC = fileURLToPath(new URL('../public/', import.meta.url));
 const PORT = Number(process.env.PORT) || 3000;
@@ -79,6 +80,7 @@ function sanitize(b) {
 export async function chat(req, res) {
   const ip = String(req.headers['x-forwarded-for'] || '').split(',')[0].trim() || req.socket?.remoteAddress || '?';
   if (limited(ip)) return json(res, 429, { error: 'Too many requests. Wait a minute and try again.' });
+  if (!sessionOf(req)) return json(res, 401, { error: 'Verification needed. Send your message again.', gate: true });
   let input;
   try { input = sanitize(await readBody(req)); } catch (e) { return json(res, e.status || 400, { error: e.status ? e.message : 'Send JSON: {"message": "..."}' }); }
 
@@ -125,6 +127,34 @@ async function serveStatic(req, res) {
   }
 }
 
+const mints = new Map(); // ip -> session-minting timestamps. Per server instance: a speed bump, not a wall.
+function mintLimited(ip) {
+  const now = Date.now();
+  const recent = (mints.get(ip) ?? []).filter((t) => now - t < 3600_000);
+  recent.push(now);
+  mints.set(ip, recent);
+  if (mints.size > 5000) mints.clear();
+  return recent.length > 12;
+}
+
+/** GET: is a check needed, and here is a challenge. POST: redeem a solved challenge for a session cookie. */
+export async function session(req, res) {
+  if (req.method === 'GET') {
+    const on = gateEnabled();
+    return json(res, 200, { required: on, signedIn: on ? Boolean(sessionOf(req)) : true, needCode: on && needsCode(), ...(on ? newChallenge() : {}) });
+  }
+  if (req.method !== 'POST') return json(res, 405, { error: 'Method not allowed' });
+  if (!gateEnabled()) return json(res, 200, { ok: true });
+  const ip = String(req.headers['x-forwarded-for'] || '').split(',')[0].trim() || req.socket?.remoteAddress || '?';
+  if (mintLimited(ip)) return json(res, 429, { error: 'Too many checks from this network. Try again later.' });
+  let body;
+  try { body = await readBody(req); } catch { return json(res, 400, { error: 'Bad request' }); }
+  const out = redeem({ challenge: str(body.challenge, 600), nonce: str(String(body.nonce ?? ''), 32), code: str(body.code, 100) });
+  if (out.error) return json(res, out.status, { error: out.error, needCode: out.needCode });
+  res.writeHead(200, { 'content-type': 'application/json', 'set-cookie': cookieFor(out.token, out.maxAge, req.headers['x-forwarded-proto'] === 'https'), ...HEADERS });
+  res.end(JSON.stringify({ ok: true }));
+}
+
 export function health(req, res) {
   json(res, 200, {
     ok: true,
@@ -138,6 +168,7 @@ const server = http.createServer(async (req, res) => {
   try {
     const { pathname } = new URL(req.url, 'http://x');
     if (req.method === 'POST' && pathname === '/api/chat') return await chat(req, res);
+    if (pathname === '/api/session') return await session(req, res);
     if (req.method === 'GET' && pathname === '/api/health') return health(req, res);
     if (req.method === 'GET') return await serveStatic(req, res);
     json(res, 405, { error: 'Method not allowed' });

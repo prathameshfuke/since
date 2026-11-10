@@ -22,11 +22,12 @@ function tuesdayLastWeek(now) {
 const fmt = (d) => new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'long' }).format(d);
 
 export function samplePrompts(now = new Date()) {
+  // `label` is what the chip shows; `text` is the full question that gets sent.
   return [
-    'Compare Postgres hosting for a small SaaS: Neon, Supabase, Render and Railway.',
-    'On Monday we shortlisted 5 CRM tools for a 20-person sales team. Has any of them changed pricing or shipped something big since?',
-    `What did I ask you on ${fmt(tuesdayLastWeek(now))}? Is your answer still correct today?`,
-    'Last Tuesday I asked you about Postgres hosting. Has any pricing changed since then?',
+    { label: 'Compare Postgres hosting', text: 'Compare Postgres hosting for a small SaaS: Neon, Supabase, Render and Railway.' },
+    { label: 'Did any CRM tool change since Monday?', text: 'On Monday we shortlisted 5 CRM tools for a 20-person sales team. Has any of them changed pricing or shipped something big since?' },
+    { label: `What did I ask on ${fmt(tuesdayLastWeek(now))}?`, text: `What did I ask you on ${fmt(tuesdayLastWeek(now))}? Is your answer still correct today?` },
+    { label: 'Postgres prices since last Tuesday', text: 'Last Tuesday I asked you about Postgres hosting. Has any pricing changed since then?' },
   ];
 }
 
