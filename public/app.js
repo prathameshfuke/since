@@ -144,6 +144,7 @@ function showError(t, message, retry) {
 function renderTranscript() {
   ui.transcript.replaceChildren();
   const t = current && store.get(current);
+  ui.app.classList.toggle('is-empty', !t?.pairs.length);
   if (!t?.pairs.length) return ui.transcript.append(hero());
   let last = '';
   for (const p of t.pairs) {
@@ -158,7 +159,9 @@ function renderTranscript() {
 
 function hero() {
   const box = el('div', 'hero');
-  box.append(el('h2', '', 'What changed since you last looked?'), el('p', '', 'Since reads the live web, remembers your questions on this device, and checks them again when you ask.'));
+  const flourish = el('span', 'flourish');
+  flourish.setAttribute('aria-hidden', 'true');
+  box.append(flourish, el('h2', '', 'What changed since you last looked?'), el('p', '', 'Since reads the live web, remembers your questions on this device, and checks them again when you ask.'));
   const list = el('ul', 'prompts');
   for (const q of samplePrompts()) {
     const li = el('li');
@@ -232,6 +235,7 @@ async function send(text) {
   let thread = current && store.get(current);
   if (!thread) { thread = store.newThread(); current = thread.id; }
   if (!thread.pairs.length) ui.transcript.replaceChildren();
+  ui.app.classList.remove('is-empty');
 
   const pairId = store.uid();
   const ts = new Date().toISOString();
